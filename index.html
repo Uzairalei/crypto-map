@@ -1,34 +1,93 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Crypto Live Map</title>
+<title>Pro Crypto Map</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <style>
-#map { height: 100vh; }
+body { margin:0; font-family:Arial; background:black; color:white; }
+#map { height:100vh; }
+
+.panel {
+  position:absolute;
+  top:10px;
+  left:10px;
+  background:#111;
+  padding:12px;
+  border-radius:10px;
+  z-index:1000;
+  width:180px;
+}
+
+h3 { margin:5px 0; font-size:14px; }
 </style>
 </head>
+
 <body>
 
 <div id="map"></div>
 
+<div class="panel">
+  <h3 id="btc">BTC: Loading...</h3>
+  <h3 id="eth">ETH: Loading...</h3>
+  <h3 id="signal">Signal: Waiting...</h3>
+  <h3 id="nodes">Nodes: Loading...</h3>
+</div>
+
 <script>
-var map = L.map('map').setView([20, 0], 2);
+var map = L.map('map').setView([20,0],2);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-// Random demo nodes (later replace with real API)
-var nodes = [
-  [37.77, -122.41],
-  [51.50, -0.12],
-  [35.68, 139.69],
-  [30.37, 69.34]
-];
+// 🔥 LOAD NODES
+fetch("https://mempool.space/api/v1/lightning/nodes")
+.then(res=>res.json())
+.then(data=>{
+  document.getElementById("nodes").innerHTML = "Nodes: " + data.length;
 
-nodes.forEach(n => {
-  L.marker(n).addTo(map)
+  data.slice(0,300).forEach(n=>{
+    if(n.geo){
+      L.circleMarker(
+        [n.geo.latitude,n.geo.longitude],
+        {radius:3}
+      ).addTo(map);
+    }
+  });
 });
+
+// 💰 LIVE PRICES
+let last = 0;
+
+setInterval(()=>{
+fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd")
+.then(res=>res.json())
+.then(d=>{
+  let btc = d.bitcoin.usd;
+  let eth = d.ethereum.usd;
+
+  document.getElementById("btc").innerHTML = "BTC: $" + btc;
+  document.getElementById("eth").innerHTML = "ETH: $" + eth;
+
+  // 🧠 SIGNAL LOGIC
+  if(last !== 0){
+    if(btc > last + 100){
+      document.getElementById("signal").innerHTML = "Signal: 🔴 SHORT";
+    }
+    else if(btc < last - 100){
+      document.getElementById("signal").innerHTML = "Signal: 🟢 LONG";
+    }
+    else{
+      document.getElementById("signal").innerHTML = "Signal: WAIT";
+    }
+  }
+
+  last = btc;
+});
+},5000);
+
 </script>
 
 </body>
