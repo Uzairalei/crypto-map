@@ -97,3 +97,31 @@ document.getElementById("tor").innerHTML = "TOR: " + torPercent.toFixed(1) + "%"
 
 </body>
 </html>
+let lastPrice = 0;
+
+setInterval(()=>{
+fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
+.then(res=>res.json())
+.then(d=>{
+  let price = d.bitcoin.usd;
+
+  if(lastPrice !== 0){
+    let diff = price - lastPrice;
+
+    if(diff > 150){
+      document.getElementById("signal").innerHTML =
+      "🔥 SHORT (Longs Liquidated)";
+    }
+    else if(diff < -150){
+      document.getElementById("signal").innerHTML =
+      "🚀 LONG (Shorts Liquidated)";
+    }
+    else{
+      document.getElementById("signal").innerHTML =
+      "WAIT";
+    }
+  }
+
+  lastPrice = price;
+});
+},4000);
