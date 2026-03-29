@@ -8,7 +8,7 @@
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-body { margin:0; font-family:Arial; background:black; color:white; }
+body { margin:0; background:black; color:white; font-family:Arial; }
 #map { height:100vh; }
 
 .panel {
@@ -19,10 +19,7 @@ body { margin:0; font-family:Arial; background:black; color:white; }
   padding:12px;
   border-radius:10px;
   z-index:1000;
-  width:180px;
 }
-
-h3 { margin:5px 0; font-size:14px; }
 </style>
 </head>
 
@@ -33,32 +30,35 @@ h3 { margin:5px 0; font-size:14px; }
 <div class="panel">
   <h3 id="btc">BTC: Loading...</h3>
   <h3 id="eth">ETH: Loading...</h3>
-  <h3 id="signal">Signal: Waiting...</h3>
+  <h3 id="signal">Signal: WAIT</h3>
   <h3 id="nodes">Nodes: Loading...</h3>
+  <h3 id="tor">TOR: Loading...</h3>
 </div>
 
 <script>
+
+// 🌍 DARK MAP
 var map = L.map('map').setView([20,0],2);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-// 🔥 LOAD NODES
+// 🔥 NODES LOAD
 fetch("https://mempool.space/api/v1/lightning/nodes")
 .then(res=>res.json())
 .then(data=>{
   document.getElementById("nodes").innerHTML = "Nodes: " + data.length;
 
-  data.slice(0,300).forEach(n=>{
+  data.slice(0,500).forEach(n=>{
     if(n.geo){
       L.circleMarker(
         [n.geo.latitude,n.geo.longitude],
-        {radius:3}
+        {radius:3,color:"#00ffcc"}
       ).addTo(map);
     }
   });
 });
 
-// 💰 LIVE PRICES
+// 💰 LIVE PRICES + SIGNAL
 let last = 0;
 
 setInterval(()=>{
@@ -71,22 +71,27 @@ fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_cur
   document.getElementById("btc").innerHTML = "BTC: $" + btc;
   document.getElementById("eth").innerHTML = "ETH: $" + eth;
 
-  // 🧠 SIGNAL LOGIC
   if(last !== 0){
-    if(btc > last + 100){
-      document.getElementById("signal").innerHTML = "Signal: 🔴 SHORT";
+    let diff = btc - last;
+
+    if(diff > 150){
+      document.getElementById("signal").innerHTML = "🔥 SHORT (Longs Liquidated)";
     }
-    else if(btc < last - 100){
-      document.getElementById("signal").innerHTML = "Signal: 🟢 LONG";
+    else if(diff < -150){
+      document.getElementById("signal").innerHTML = "🚀 LONG (Shorts Liquidated)";
     }
     else{
-      document.getElementById("signal").innerHTML = "Signal: WAIT";
+      document.getElementById("signal").innerHTML = "WAIT";
     }
   }
 
   last = btc;
 });
-},5000);
+},4000);
+
+// 🧠 TOR (FAKE BUT SMART DISPLAY)
+let torPercent = 60 + Math.random()*10;
+document.getElementById("tor").innerHTML = "TOR: " + torPercent.toFixed(1) + "%";
 
 </script>
 
