@@ -125,3 +125,20 @@ fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=u
   lastPrice = price;
 });
 },4000);
+fetch("https://mempool.space/api/v1/lightning/nodes")
+.then(res=>res.json())
+.then(data=>{
+  document.getElementById("nodes").innerHTML = "Nodes: " + data.length;
+
+  data.slice(0,500).forEach(n=>{
+    if(n.geo){
+      L.circleMarker(
+        [n.geo.latitude,n.geo.longitude],
+        {
+          radius: 3,
+          color: "#00ffcc"
+        }
+      ).addTo(map);
+    }
+  });
+});
