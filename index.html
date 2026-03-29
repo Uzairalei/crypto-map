@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Crypto Live Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<style>
+#map { height: 100vh; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script>
+var map = L.map('map').setView([20, 0], 2);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+// Random demo nodes (later replace with real API)
+var nodes = [
+  [37.77, -122.41],
+  [51.50, -0.12],
+  [35.68, 139.69],
+  [30.37, 69.34]
+];
+
+nodes.forEach(n => {
+  L.marker(n).addTo(map)
+});
+</script>
+
+</body>
+</html>
