@@ -42,6 +42,11 @@ st.markdown("""
         letter-spacing: 3px;
     }
     
+    .main-header p {
+        color: #88ffcc;
+        font-family: monospace;
+    }
+    
     .signal-box {
         background: #0f1322;
         border-radius: 15px;
@@ -81,18 +86,6 @@ st.markdown("""
         color: #00ffaa;
     }
     
-    .metric-good {
-        color: #00ffaa;
-    }
-    
-    .metric-bad {
-        color: #ff4444;
-    }
-    
-    .metric-warning {
-        color: #ffaa00;
-    }
-    
     .footer {
         text-align: center;
         padding: 20px;
@@ -121,6 +114,18 @@ st.markdown("""
     .coin-card:hover {
         border-color: #00ffaa;
         transform: translateY(-2px);
+    }
+    
+    .metric-good {
+        color: #00ffaa;
+    }
+    
+    .metric-bad {
+        color: #ff4444;
+    }
+    
+    .metric-warning {
+        color: #ffaa00;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -189,7 +194,7 @@ def generate_mock_bitnodes():
     }
 
 def fetch_binance_funding_rate(symbol="BTCUSDT"):
-    """Fetch funding rate from Binance Futures - FREE (No API Key)"""
+    """Fetch funding rate from Binance Futures - FREE"""
     try:
         url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}"
         response = requests.get(url, timeout=10)
@@ -197,30 +202,11 @@ def fetch_binance_funding_rate(symbol="BTCUSDT"):
         if response.status_code == 200:
             data = response.json()
             funding_rate = float(data.get('lastFundingRate', 0))
-            next_funding = data.get('nextFundingTime', 0)
             
             return {
                 'funding_rate': funding_rate,
                 'funding_rate_percent': funding_rate * 100,
-                'next_funding_time': datetime.fromtimestamp(next_funding/1000) if next_funding else None,
                 'mark_price': float(data.get('markPrice', 0))
-            }
-        else:
-            return None
-    except Exception as e:
-        return None
-
-def fetch_binance_open_interest(symbol="BTCUSDT"):
-    """Fetch open interest from Binance Futures - FREE"""
-    try:
-        url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={symbol}"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'open_interest': float(data.get('openInterest', 0)),
-                'symbol': data.get('symbol', symbol)
             }
         else:
             return None
@@ -261,8 +247,7 @@ def fetch_binance_price(symbol="BTCUSDT"):
                 'price_change_percent': float(data.get('priceChangePercent', 0)),
                 'high_24h': float(data.get('highPrice', 0)),
                 'low_24h': float(data.get('lowPrice', 0)),
-                'volume': float(data.get('volume', 0)),
-                'quote_volume': float(data.get('quoteVolume', 0))
+                'volume': float(data.get('volume', 0))
             }
         else:
             return generate_mock_price(symbol)
@@ -277,8 +262,7 @@ def generate_mock_price(symbol):
         'price_change_percent': round((random.random() - 0.5) * 3, 2),
         'high_24h': round(base_price + 100, 2),
         'low_24h': round(base_price - 100, 2),
-        'volume': round(random.random() * 10000, 2),
-        'quote_volume': round(random.random() * 100000000, 2)
+        'volume': round(random.random() * 10000, 2)
     }
 
 def fetch_fear_greed_index():
@@ -293,33 +277,11 @@ def fetch_fear_greed_index():
                 latest = data['data'][0]
                 return {
                     'value': int(latest.get('value', 50)),
-                    'classification': latest.get('value_classification', 'Neutral'),
-                    'timestamp': datetime.fromtimestamp(int(latest.get('timestamp', 0)))
+                    'classification': latest.get('value_classification', 'Neutral')
                 }
-        return {'value': 50, 'classification': 'Neutral', 'timestamp': datetime.now()}
+        return {'value': 50, 'classification': 'Neutral'}
     except Exception as e:
-        return {'value': 50, 'classification': 'Neutral', 'timestamp': datetime.now()}
-
-def fetch_binance_liquidations(symbol="BTCUSDT"):
-    """Fetch recent liquidation data from Binance - FREE"""
-    try:
-        # Binance doesn't have direct liquidation API, but we can get it from mark price Klines
-        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1h&limit=1"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data and len(data) > 0:
-                candle = data[0]
-                return {
-                    'high': float(candle[2]),
-                    'low': float(candle[3]),
-                    'volume': float(candle[5]),
-                    'quote_volume': float(candle[6])
-                }
-        return None
-    except Exception as e:
-        return None
+        return {'value': 50, 'classification': 'Neutral'}
 
 # ============================================
 # SIGNAL CALCULATION ENGINE
@@ -382,7 +344,7 @@ def get_tor_speed(delta_tor):
         return "SLOW CHANGE", "neutral", "Likely fakeout"
 
 def get_funding_signal(funding_rate_percent):
-    """Interpret funding rate signal"""
+    """Interpret funding rate signal - FIXED for None values"""
     if funding_rate_percent is None:
         return "⚡ NO DATA", "neutral", "Funding rate unavailable"
     
@@ -548,12 +510,10 @@ def get_multiple_coin_data():
     
     for symbol in coins:
         price_data = fetch_binance_price(symbol)
-        funding_data = fetch_binance_funding_rate(symbol)
         
         results[symbol.replace('USDT', '')] = {
             'price': price_data.get('price', 0),
-            'price_change': price_data.get('price_change_percent', 0),
-            'funding_rate': funding_data.get('funding_rate_percent', 0) if funding_data else None
+            'price_change': price_data.get('price_change_percent', 0)
         }
     
     return results
@@ -593,8 +553,8 @@ def get_coin_signals(coin_data, final_signal_type):
             'symbol': coin,
             'signal': signal,
             'confidence': confidence,
-            'entry': f'${entry:,.2f}' if isinstance(entry, (int, float)) else entry,
-            'price_change': f'{price_change:+.2f}%' if price_change else 'N/A'
+            'entry': f'${entry:,.2f}' if isinstance(entry, (int, float)) and entry > 0 else entry,
+            'price_change': f'{price_change:+.2f}%' if price_change != 0 else 'N/A'
         })
     
     return signals
@@ -609,7 +569,6 @@ with st.spinner('🔄 Fetching live data from Bitnodes, Binance, and Alternative
     
     # Binance Futures Data
     btc_funding = fetch_binance_funding_rate("BTCUSDT")
-    btc_oi = fetch_binance_open_interest("BTCUSDT")
     btc_ls = fetch_binance_long_short_ratio("BTCUSDT")
     btc_price = fetch_binance_price("BTCUSDT")
     
@@ -635,7 +594,7 @@ astro_label, is_reversal = get_astro_window(current_time)
 tor_num = calculate_numerology(current_tor)
 na_num = calculate_numerology(current_na)
 
-# Signals from APIs
+# Signals from APIs - FIXED: Handle None values
 funding_rate = btc_funding.get('funding_rate_percent') if btc_funding else None
 funding_text, funding_type, funding_desc = get_funding_signal(funding_rate)
 
@@ -643,6 +602,10 @@ ls_ratio = btc_ls.get('ls_ratio') if btc_ls else None
 ls_text, ls_type = get_ls_ratio_signal(ls_ratio)
 
 fng_text, fng_type = get_fear_greed_signal(fng.get('value'))
+
+# Format values for display - FIXED: Check None before formatting
+funding_display = f"{funding_rate:.4f}%" if funding_rate is not None else "N/A"
+ls_ratio_display = f"{ls_ratio:.2f}" if ls_ratio is not None else "N/A"
 
 # Final accurate signal
 final_signal = get_final_signal(
@@ -666,29 +629,31 @@ st.markdown("### 📊 LIVE MARKET DATA")
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
+    delta_color = "#00ffaa" if delta_tor > 0 else ("#ff4444" if delta_tor < 0 else "#ffaa00")
     st.markdown(f"""
     <div class="stat-card">
         <div>🌐 TOR %</div>
         <div class="stat-value">{current_tor}%</div>
-        <div style="color: {'#00ffaa' if delta_tor > 0 else '#ff4444'}">{delta_tor:+.2f}%</div>
+        <div style="color: {delta_color}">{delta_tor:+.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
+    delta_color = "#00ffaa" if delta_na > 0 else ("#ff4444" if delta_na < 0 else "#ffaa00")
     st.markdown(f"""
     <div class="stat-card">
         <div>📡 NETWORK AVAILABILITY</div>
         <div class="stat-value">{current_na:,}</div>
-        <div style="color: {'#00ffaa' if delta_na > 0 else '#ff4444'}">{delta_na:+,.0f}</div>
+        <div style="color: {delta_color}">{delta_na:+,.0f}</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
-    funding_color = "#00ffaa" if funding_rate and funding_rate < -0.005 else ("#ff4444" if funding_rate and funding_rate > 0.005 else "#ffaa00")
+    funding_color = "#00ffaa" if funding_rate is not None and funding_rate < -0.005 else ("#ff4444" if funding_rate is not None and funding_rate > 0.005 else "#ffaa00")
     st.markdown(f"""
     <div class="stat-card">
         <div>💰 FUNDING RATE</div>
-        <div class="stat-value" style="color: {funding_color};">{funding_rate:.4f}%' if funding_rate else 'N/A'</div>
+        <div class="stat-value" style="color: {funding_color};">{funding_display}</div>
         <div>{funding_desc[:25] if funding_desc else ''}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -697,7 +662,7 @@ with col4:
     st.markdown(f"""
     <div class="stat-card">
         <div>📊 L/S RATIO</div>
-        <div class="stat-value">{ls_ratio:.2f}' if ls_ratio else 'N/A'</div>
+        <div class="stat-value">{ls_ratio_display}</div>
         <div>{ls_text}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -770,7 +735,7 @@ with col_d2:
         <div>{astro_label}</div>
         <hr>
         <h4>🔢 Numerology</h4>
-        <div>TOR: {tor_num} | NA: {na_num}</div>
+        <div>TOR: {tor_num if tor_num else '-'} | NA: {na_num if na_num else '-'}</div>
         <hr>
         <h4>💰 BTC Price</h4>
         <div>${btc_price.get('price', 0):,.2f} ({btc_price.get('price_change_percent', 0):+.2f}%)</div>
@@ -788,10 +753,11 @@ cols = st.columns(5)
 for i, signal in enumerate(coin_signals[:10]):
     with cols[i % 5]:
         signal_icon = "🟢" if signal['signal'] == "LONG" else ("🔴" if signal['signal'] == "SHORT" else "🟡")
+        signal_color = "#00ffaa" if signal['signal'] == "LONG" else ("#ff4444" if signal['signal'] == "SHORT" else "#ffaa00")
         st.markdown(f"""
         <div class="coin-card">
             <div style="font-size: 1.3em; font-weight: bold;">{signal['symbol']}</div>
-            <div style="color: {'#00ffaa' if signal['signal'] == 'LONG' else ('#ff4444' if signal['signal'] == 'SHORT' else '#ffaa00')}">
+            <div style="color: {signal_color};">
                 {signal_icon} {signal['signal']}
             </div>
             <div>Confidence: {signal['confidence']}</div>
