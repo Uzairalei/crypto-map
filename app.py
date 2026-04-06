@@ -5,12 +5,6 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import numpy as np
 import time
-import json
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 # ============================================
 # PAGE CONFIGURATION
@@ -22,11 +16,11 @@ st.set_page_config(
 )
 
 # ============================================
-# CUSTOM CSS - PROFESSIONAL DARK THEME
+# CUSTOM CSS
 # ============================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
     
     .stApp {
         background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
@@ -114,6 +108,20 @@ st.markdown("""
         border-left: 3px solid #00ffaa;
         background: rgba(0,255,170,0.05);
     }
+    
+    .coin-card {
+        background: #0f1322;
+        border: 1px solid #2a2f4a;
+        border-radius: 10px;
+        padding: 12px;
+        text-align: center;
+        transition: all 0.3s;
+    }
+    
+    .coin-card:hover {
+        border-color: #00ffaa;
+        transform: translateY(-2px);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,7 +131,7 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>🌑 UZAIR ALI DARK CRYPTO</h1>
-    <p>Professional Trading Signals | Bitnodes + Coinglass + Binance | Multi-Factor AI Analysis</p>
+    <p>Professional Trading Signals | Bitnodes + Binance + Fear & Greed | Multi-Factor AI Analysis</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -134,27 +142,15 @@ if 'prev_tor' not in st.session_state:
     st.session_state.prev_tor = None
 if 'prev_na' not in st.session_state:
     st.session_state.prev_na = None
-if 'coinglass_key' not in st.session_state:
-    st.session_state.coinglass_key = os.getenv('COINGLASS_API_KEY', '')
 if 'history' not in st.session_state:
     st.session_state.history = []
 
 # ============================================
-# API KEY INPUT (if not in env)
-# ============================================
-if not st.session_state.coinglass_key:
-    st.sidebar.warning("⚠️ Coinglass API Key Required for Real Data")
-    coinglass_key_input = st.sidebar.text_input("Enter Coinglass API Key", type="password")
-    if coinglass_key_input:
-        st.session_state.coinglass_key = coinglass_key_input
-        st.rerun()
-
-# ============================================
-# API FUNCTIONS
+# FREE API FUNCTIONS (No API Key Required)
 # ============================================
 
 def fetch_bitnodes_data():
-    """Fetch real data from Bitnodes API"""
+    """Fetch real data from Bitnodes API - FREE"""
     try:
         url = "https://bitnodes.io/api/v1/snapshots/latest/"
         headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
@@ -192,58 +188,68 @@ def generate_mock_bitnodes():
         'success': False
     }
 
-def fetch_coinglass_data(symbol="BTC"):
-    """Fetch real data from Coinglass API - Funding Rate, OI, Long/Short Ratio"""
-    if not st.session_state.coinglass_key:
-        return None
-    
+def fetch_binance_funding_rate(symbol="BTCUSDT"):
+    """Fetch funding rate from Binance Futures - FREE (No API Key)"""
     try:
-        headers = {
-            'CG-API-KEY': st.session_state.coinglass_key,
-            'Accept': 'application/json'
-        }
-        base_url = "https://open-api-v4.coinglass.com"
+        url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}"
+        response = requests.get(url, timeout=10)
         
-        # Fetch Funding Rate
-        funding_url = f"{base_url}/api/futures/funding-rate/history"
-        funding_params = {"symbol": f"{symbol}USDT", "exchange": "Binance", "interval": "1h", "limit": 24}
-        funding_resp = requests.get(funding_url, headers=headers, params=funding_params, timeout=10)
-        
-        # Fetch Open Interest
-        oi_url = f"{base_url}/api/futures/open-interest/history"
-        oi_params = {"symbol": f"{symbol}USDT", "exchange": "Binance", "interval": "1h", "limit": 24}
-        oi_resp = requests.get(oi_url, headers=headers, params=oi_params, timeout=10)
-        
-        # Fetch Long/Short Ratio
-        ls_url = f"{base_url}/api/futures/long-short-ratio/history"
-        ls_params = {"symbol": f"{symbol}USDT", "exchange": "Binance", "interval": "1h", "limit": 24}
-        ls_resp = requests.get(ls_url, headers=headers, params=ls_params, timeout=10)
-        
-        result = {}
-        
-        if funding_resp.status_code == 200:
-            funding_data = funding_resp.json()
-            if funding_data.get('code') == '0':
-                result['funding_rate'] = funding_data.get('data', {}).get('current_rate', 0)
-        
-        if oi_resp.status_code == 200:
-            oi_data = oi_resp.json()
-            if oi_data.get('code') == '0':
-                result['open_interest'] = oi_data.get('data', {}).get('current_oi', 0)
-        
-        if ls_resp.status_code == 200:
-            ls_data = ls_resp.json()
-            if ls_data.get('code') == '0':
-                result['long_short_ratio'] = ls_data.get('data', {}).get('long_short_ratio', 1)
-        
-        return result
-        
+        if response.status_code == 200:
+            data = response.json()
+            funding_rate = float(data.get('lastFundingRate', 0))
+            next_funding = data.get('nextFundingTime', 0)
+            
+            return {
+                'funding_rate': funding_rate,
+                'funding_rate_percent': funding_rate * 100,
+                'next_funding_time': datetime.fromtimestamp(next_funding/1000) if next_funding else None,
+                'mark_price': float(data.get('markPrice', 0))
+            }
+        else:
+            return None
     except Exception as e:
-        print(f"Coinglass API Error: {e}")
         return None
 
-def fetch_binance_data(symbol="BTCUSDT"):
-    """Fetch real price and volume data from Binance"""
+def fetch_binance_open_interest(symbol="BTCUSDT"):
+    """Fetch open interest from Binance Futures - FREE"""
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={symbol}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'open_interest': float(data.get('openInterest', 0)),
+                'symbol': data.get('symbol', symbol)
+            }
+        else:
+            return None
+    except Exception as e:
+        return None
+
+def fetch_binance_long_short_ratio(symbol="BTCUSDT"):
+    """Fetch Top Trader Long/Short Account Ratio from Binance - FREE"""
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/topLongShortAccountRatio?symbol={symbol}&period=1h&limit=1"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data and len(data) > 0:
+                latest = data[0]
+                long_ratio = float(latest.get('longAccount', 0))
+                short_ratio = float(latest.get('shortAccount', 0))
+                return {
+                    'long_ratio': long_ratio,
+                    'short_ratio': short_ratio,
+                    'ls_ratio': long_ratio / short_ratio if short_ratio > 0 else 1
+                }
+        return None
+    except Exception as e:
+        return None
+
+def fetch_binance_price(symbol="BTCUSDT"):
+    """Fetch current price and 24h change from Binance - FREE"""
     try:
         url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
         response = requests.get(url, timeout=10)
@@ -252,28 +258,68 @@ def fetch_binance_data(symbol="BTCUSDT"):
             data = response.json()
             return {
                 'price': float(data.get('lastPrice', 0)),
-                'volume': float(data.get('volume', 0)),
                 'price_change_percent': float(data.get('priceChangePercent', 0)),
-                'high': float(data.get('highPrice', 0)),
-                'low': float(data.get('lowPrice', 0)),
+                'high_24h': float(data.get('highPrice', 0)),
+                'low_24h': float(data.get('lowPrice', 0)),
+                'volume': float(data.get('volume', 0)),
                 'quote_volume': float(data.get('quoteVolume', 0))
             }
         else:
-            return generate_mock_binance(symbol)
+            return generate_mock_price(symbol)
     except Exception as e:
-        return generate_mock_binance(symbol)
+        return generate_mock_price(symbol)
 
-def generate_mock_binance(symbol):
+def generate_mock_price(symbol):
     import random
     base_price = 65000 if 'BTC' in symbol else (3500 if 'ETH' in symbol else 150)
     return {
         'price': round(base_price + (random.random() - 0.5) * 200, 2),
-        'volume': round(random.random() * 10000, 2),
         'price_change_percent': round((random.random() - 0.5) * 3, 2),
-        'high': round(base_price + 100, 2),
-        'low': round(base_price - 100, 2),
+        'high_24h': round(base_price + 100, 2),
+        'low_24h': round(base_price - 100, 2),
+        'volume': round(random.random() * 10000, 2),
         'quote_volume': round(random.random() * 100000000, 2)
     }
+
+def fetch_fear_greed_index():
+    """Fetch Crypto Fear & Greed Index from Alternative.me - FREE"""
+    try:
+        url = "https://api.alternative.me/fng/?limit=1"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('data') and len(data['data']) > 0:
+                latest = data['data'][0]
+                return {
+                    'value': int(latest.get('value', 50)),
+                    'classification': latest.get('value_classification', 'Neutral'),
+                    'timestamp': datetime.fromtimestamp(int(latest.get('timestamp', 0)))
+                }
+        return {'value': 50, 'classification': 'Neutral', 'timestamp': datetime.now()}
+    except Exception as e:
+        return {'value': 50, 'classification': 'Neutral', 'timestamp': datetime.now()}
+
+def fetch_binance_liquidations(symbol="BTCUSDT"):
+    """Fetch recent liquidation data from Binance - FREE"""
+    try:
+        # Binance doesn't have direct liquidation API, but we can get it from mark price Klines
+        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1h&limit=1"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data and len(data) > 0:
+                candle = data[0]
+                return {
+                    'high': float(candle[2]),
+                    'low': float(candle[3]),
+                    'volume': float(candle[5]),
+                    'quote_volume': float(candle[6])
+                }
+        return None
+    except Exception as e:
+        return None
 
 # ============================================
 # SIGNAL CALCULATION ENGINE
@@ -335,57 +381,60 @@ def get_tor_speed(delta_tor):
     else:
         return "SLOW CHANGE", "neutral", "Likely fakeout"
 
-def get_funding_signal(funding_rate):
+def get_funding_signal(funding_rate_percent):
     """Interpret funding rate signal"""
-    if funding_rate is None:
-        return None, "neutral", "No data"
+    if funding_rate_percent is None:
+        return "⚡ NO DATA", "neutral", "Funding rate unavailable"
     
-    if funding_rate > 0.01:
-        return "🔴 EXTREME POSITIVE", "bearish", "Funding very high - Overheated longs"
-    elif funding_rate > 0.005:
-        return "🟡 POSITIVE", "neutral", "Moderate positive - Longs paying"
-    elif funding_rate < -0.01:
-        return "🟢 EXTREME NEGATIVE", "bullish", "Funding very negative - Shorts paying"
-    elif funding_rate < -0.005:
-        return "🟢 NEGATIVE", "bullish", "Moderate negative - Shorts paying"
+    if funding_rate_percent > 0.01:
+        return "🔴 EXTREME POSITIVE", "bearish", f"Funding {funding_rate_percent:.4f}% - Overheated longs"
+    elif funding_rate_percent > 0.005:
+        return "🟡 POSITIVE", "neutral", f"Funding {funding_rate_percent:.4f}% - Longs paying"
+    elif funding_rate_percent < -0.01:
+        return "🟢 EXTREME NEGATIVE", "bullish", f"Funding {funding_rate_percent:.4f}% - Shorts paying"
+    elif funding_rate_percent < -0.005:
+        return "🟢 NEGATIVE", "bullish", f"Funding {funding_rate_percent:.4f}% - Shorts paying"
     else:
-        return "⚡ NEUTRAL", "neutral", "Normal funding"
+        return "⚡ NEUTRAL", "neutral", f"Funding {funding_rate_percent:.4f}% - Normal"
 
-def get_oi_signal(open_interest, price_change):
-    """Interpret open interest signal"""
-    if open_interest is None:
-        return None, "neutral", "No data"
+def get_fear_greed_signal(fng_value):
+    """Interpret Fear & Greed Index signal"""
+    if fng_value is None:
+        return "⚡ NO DATA", "neutral"
     
-    if price_change > 0 and open_interest > 0:
-        return "📈 OI + PRICE UP", "bullish", "New money entering"
-    elif price_change < 0 and open_interest > 0:
-        return "📉 OI UP + PRICE DOWN", "bearish", "Short buildup"
-    elif price_change > 0 and open_interest < 0:
-        return "⚠️ OI DOWN + PRICE UP", "neutral", "Profit taking"
+    if fng_value <= 25:
+        return "🟢 EXTREME FEAR", "bullish"
+    elif fng_value <= 40:
+        return "🟢 FEAR", "bullish"
+    elif fng_value <= 60:
+        return "⚡ NEUTRAL", "neutral"
+    elif fng_value <= 75:
+        return "🟡 GREED", "bearish"
     else:
-        return "⚡ NEUTRAL", "neutral", "Mixed signals"
+        return "🔴 EXTREME GREED", "bearish"
 
 def get_ls_ratio_signal(ls_ratio):
     """Interpret long/short ratio signal"""
     if ls_ratio is None:
-        return None, "neutral", "No data"
+        return "⚡ NO DATA", "neutral"
     
     if ls_ratio > 2:
-        return "🔴 EXTREME LONG", "bearish", "Too many longs - Reversal risk"
+        return "🔴 EXTREME LONG", "bearish"
     elif ls_ratio > 1.5:
-        return "🟡 LONG DOMINANT", "neutral", "More longs than shorts"
+        return "🟡 LONG DOMINANT", "neutral"
     elif ls_ratio < 0.5:
-        return "🟢 EXTREME SHORT", "bullish", "Too many shorts - Squeeze coming"
+        return "🟢 EXTREME SHORT", "bullish"
     elif ls_ratio < 0.8:
-        return "🟢 SHORT DOMINANT", "bullish", "More shorts than longs"
+        return "🟢 SHORT DOMINANT", "bullish"
     else:
-        return "⚡ BALANCED", "neutral", "Normal ratio"
+        return "⚡ BALANCED", "neutral"
 
 # ============================================
 # FINAL ACCURATE SIGNAL
 # ============================================
 
-def get_final_signal(tor, delta_tor, na, delta_na, funding_rate, open_interest, ls_ratio, price_change_percent):
+def get_final_signal(tor, delta_tor, na, delta_na, funding_rate_percent, 
+                     ls_ratio, fng_value, price_change_percent):
     """Combine all factors for final accurate signal"""
     
     signals = []
@@ -409,26 +458,17 @@ def get_final_signal(tor, delta_tor, na, delta_na, funding_rate, open_interest, 
         signals.append("⚡ Bitnodes: NEUTRAL")
     
     # 2. Funding Rate Signal
-    if funding_rate is not None:
-        if funding_rate < -0.005:
-            signals.append(f"✅ Funding: NEGATIVE ({funding_rate*100:.4f}%) - Bullish")
+    if funding_rate_percent is not None:
+        if funding_rate_percent < -0.005:
+            signals.append(f"✅ Funding: NEGATIVE ({funding_rate_percent:.4f}%) - Bullish")
             bullish_score += 2
-        elif funding_rate > 0.005:
-            signals.append(f"❌ Funding: POSITIVE ({funding_rate*100:.4f}%) - Bearish")
+        elif funding_rate_percent > 0.005:
+            signals.append(f"❌ Funding: POSITIVE ({funding_rate_percent:.4f}%) - Bearish")
             bearish_score += 2
         else:
-            signals.append(f"⚡ Funding: NEUTRAL ({funding_rate*100:.4f}%)")
+            signals.append(f"⚡ Funding: NEUTRAL ({funding_rate_percent:.4f}%)")
     
-    # 3. Open Interest Signal
-    if open_interest is not None and price_change_percent is not None:
-        if price_change_percent > 0 and open_interest > 0:
-            signals.append(f"✅ OI: RISING + Price UP - Bullish")
-            bullish_score += 1
-        elif price_change_percent < 0 and open_interest > 0:
-            signals.append(f"❌ OI: RISING + Price DOWN - Bearish")
-            bearish_score += 1
-    
-    # 4. Long/Short Ratio Signal
+    # 3. Long/Short Ratio Signal
     if ls_ratio is not None:
         if ls_ratio < 0.7:
             signals.append(f"✅ L/S Ratio: {ls_ratio:.2f} (Short dominant) - Bullish")
@@ -438,6 +478,17 @@ def get_final_signal(tor, delta_tor, na, delta_na, funding_rate, open_interest, 
             bearish_score += 2
         else:
             signals.append(f"⚡ L/S Ratio: {ls_ratio:.2f} - Neutral")
+    
+    # 4. Fear & Greed Signal
+    if fng_value is not None:
+        if fng_value <= 40:
+            signals.append(f"✅ Fear & Greed: {fng_value} (FEAR) - Bullish")
+            bullish_score += 2
+        elif fng_value >= 70:
+            signals.append(f"❌ Fear & Greed: {fng_value} (GREED) - Bearish")
+            bearish_score += 2
+        else:
+            signals.append(f"⚡ Fear & Greed: {fng_value} - Neutral")
     
     # 5. Price Action
     if price_change_percent is not None:
@@ -487,16 +538,35 @@ def get_final_signal(tor, delta_tor, na, delta_na, funding_rate, open_interest, 
         }
 
 # ============================================
-# COIN SIGNALS FOR ALL ALTCOINS
+# COIN SIGNALS FOR ALTCOINS
 # ============================================
 
-def get_coin_signals(symbols, final_signal_type, price_data):
-    """Generate signals for multiple coins based on final signal"""
+def get_multiple_coin_data():
+    """Fetch data for multiple coins"""
+    coins = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
+    results = {}
+    
+    for symbol in coins:
+        price_data = fetch_binance_price(symbol)
+        funding_data = fetch_binance_funding_rate(symbol)
+        
+        results[symbol.replace('USDT', '')] = {
+            'price': price_data.get('price', 0),
+            'price_change': price_data.get('price_change_percent', 0),
+            'funding_rate': funding_data.get('funding_rate_percent', 0) if funding_data else None
+        }
+    
+    return results
+
+def get_coin_signals(coin_data, final_signal_type):
+    """Generate signals for multiple coins"""
     signals = []
     
-    for symbol in symbols:
-        price_info = price_data.get(symbol, {})
-        price_change = price_info.get('price_change_percent', 0)
+    coins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'LINK']
+    
+    for coin in coins:
+        data = coin_data.get(coin, {})
+        price_change = data.get('price_change', 0)
         
         if final_signal_type == 'bullish':
             if price_change > 0:
@@ -505,7 +575,7 @@ def get_coin_signals(symbols, final_signal_type, price_data):
             else:
                 signal = "LONG (DIP)"
                 confidence = "MEDIUM"
-            entry = price_info.get('price', 'Market')
+            entry = data.get('price', 'Market')
         elif final_signal_type == 'bearish':
             if price_change < 0:
                 signal = "SHORT"
@@ -513,14 +583,14 @@ def get_coin_signals(symbols, final_signal_type, price_data):
             else:
                 signal = "SHORT (RALLY)"
                 confidence = "MEDIUM"
-            entry = price_info.get('price', 'Market')
+            entry = data.get('price', 'Market')
         else:
             signal = "NEUTRAL"
             confidence = "LOW"
             entry = "No entry"
         
         signals.append({
-            'symbol': symbol,
+            'symbol': coin,
             'signal': signal,
             'confidence': confidence,
             'entry': f'${entry:,.2f}' if isinstance(entry, (int, float)) else entry,
@@ -534,13 +604,20 @@ def get_coin_signals(symbols, final_signal_type, price_data):
 # ============================================
 
 # Fetch all data
-with st.spinner('🔄 Fetching live data from Bitnodes, Coinglass, and Binance...'):
+with st.spinner('🔄 Fetching live data from Bitnodes, Binance, and Alternative.me...'):
     bitnodes = fetch_bitnodes_data()
-    coinglass = fetch_coinglass_data("BTC")
-    binance_btc = fetch_binance_data("BTCUSDT")
-    binance_eth = fetch_binance_data("ETHUSDT")
-    binance_sol = fetch_binance_data("SOLUSDT")
-    binance_bnb = fetch_binance_data("BNBUSDT")
+    
+    # Binance Futures Data
+    btc_funding = fetch_binance_funding_rate("BTCUSDT")
+    btc_oi = fetch_binance_open_interest("BTCUSDT")
+    btc_ls = fetch_binance_long_short_ratio("BTCUSDT")
+    btc_price = fetch_binance_price("BTCUSDT")
+    
+    # Fear & Greed
+    fng = fetch_fear_greed_index()
+    
+    # Multi-coin data
+    coin_data = get_multiple_coin_data()
 
 current_tor = bitnodes['tor']
 current_na = bitnodes['na']
@@ -558,43 +635,32 @@ astro_label, is_reversal = get_astro_window(current_time)
 tor_num = calculate_numerology(current_tor)
 na_num = calculate_numerology(current_na)
 
-# Coinglass signals
-funding_rate = coinglass.get('funding_rate') if coinglass else None
-open_interest = coinglass.get('open_interest') if coinglass else None
-ls_ratio = coinglass.get('long_short_ratio') if coinglass else None
-
+# Signals from APIs
+funding_rate = btc_funding.get('funding_rate_percent') if btc_funding else None
 funding_text, funding_type, funding_desc = get_funding_signal(funding_rate)
-oi_text, oi_type, oi_desc = get_oi_signal(open_interest, binance_btc.get('price_change_percent', 0))
-ls_text, ls_type, ls_desc = get_ls_ratio_signal(ls_ratio)
+
+ls_ratio = btc_ls.get('ls_ratio') if btc_ls else None
+ls_text, ls_type = get_ls_ratio_signal(ls_ratio)
+
+fng_text, fng_type = get_fear_greed_signal(fng.get('value'))
 
 # Final accurate signal
 final_signal = get_final_signal(
     current_tor, delta_tor, current_na, delta_na,
-    funding_rate, open_interest, ls_ratio,
-    binance_btc.get('price_change_percent', 0)
+    funding_rate, ls_ratio, fng.get('value'),
+    btc_price.get('price_change_percent', 0)
 )
 
-# Price data dict for coin signals
-price_data = {
-    'BTC': binance_btc,
-    'ETH': binance_eth,
-    'SOL': binance_sol,
-    'BNB': binance_bnb
-}
-
 # Generate coin signals
-coin_symbols = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'LINK']
-coin_signals = get_coin_signals(coin_symbols, final_signal['type'], price_data)
+coin_signals = get_coin_signals(coin_data, final_signal['type'])
 
 # Update session state
 st.session_state.prev_tor = current_tor
 st.session_state.prev_na = current_na
 
 # ============================================
-# DISPLAY
+# DISPLAY - STATISTICS ROW
 # ============================================
-
-# Stats Row
 st.markdown("### 📊 LIVE MARKET DATA")
 
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -618,30 +684,31 @@ with col2:
     """, unsafe_allow_html=True)
 
 with col3:
+    funding_color = "#00ffaa" if funding_rate and funding_rate < -0.005 else ("#ff4444" if funding_rate and funding_rate > 0.005 else "#ffaa00")
     st.markdown(f"""
     <div class="stat-card">
-        <div>⚡ MOMENTUM</div>
-        <div class="stat-value">{momentum:+d}</div>
-        <div>(-3 to +3)</div>
+        <div>💰 FUNDING RATE</div>
+        <div class="stat-value" style="color: {funding_color};">{funding_rate:.4f}%' if funding_rate else 'N/A'</div>
+        <div>{funding_desc[:25] if funding_desc else ''}</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col4:
-    color = "#00ffaa" if funding_rate and funding_rate < -0.005 else ("#ff4444" if funding_rate and funding_rate > 0.005 else "#ffaa00")
-    st.markdown(f"""
-    <div class="stat-card">
-        <div>💰 FUNDING RATE</div>
-        <div class="stat-value" style="color: {color};">{funding_rate*100:.4f}%' if funding_rate else 'N/A'</div>
-        <div>{funding_desc[:30] if funding_desc else ''}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col5:
     st.markdown(f"""
     <div class="stat-card">
         <div>📊 L/S RATIO</div>
         <div class="stat-value">{ls_ratio:.2f}' if ls_ratio else 'N/A'</div>
-        <div>{ls_desc[:30] if ls_desc else ''}</div>
+        <div>{ls_text}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col5:
+    fng_color = "#00ffaa" if fng.get('value', 50) <= 40 else ("#ff4444" if fng.get('value', 50) >= 70 else "#ffaa00")
+    st.markdown(f"""
+    <div class="stat-card">
+        <div>😨 FEAR & GREED</div>
+        <div class="stat-value" style="color: {fng_color};">{fng.get('value', 50)}</div>
+        <div>{fng.get('classification', 'Neutral')}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -690,6 +757,9 @@ with col_d1:
             {tor_speed_name}
         </div>
         <div>{tor_speed_desc}</div>
+        <hr>
+        <h4>⚡ Momentum Score</h4>
+        <div style="font-size: 1.5em;">{momentum:+d}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -703,7 +773,8 @@ with col_d2:
         <div>TOR: {tor_num} | NA: {na_num}</div>
         <hr>
         <h4>💰 BTC Price</h4>
-        <div>${binance_btc.get('price', 0):,.2f} ({binance_btc.get('price_change_percent', 0):+.2f}%)</div>
+        <div>${btc_price.get('price', 0):,.2f} ({btc_price.get('price_change_percent', 0):+.2f}%)</div>
+        <div>24h High: ${btc_price.get('high_24h', 0):,.2f} | Low: ${btc_price.get('low_24h', 0):,.2f}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -712,12 +783,13 @@ with col_d2:
 # ============================================
 st.markdown("### 💰 ALTCOINS TRADING SIGNALS")
 
+# Display in grid
 cols = st.columns(5)
 for i, signal in enumerate(coin_signals[:10]):
     with cols[i % 5]:
         signal_icon = "🟢" if signal['signal'] == "LONG" else ("🔴" if signal['signal'] == "SHORT" else "🟡")
         st.markdown(f"""
-        <div class="stat-card">
+        <div class="coin-card">
             <div style="font-size: 1.3em; font-weight: bold;">{signal['symbol']}</div>
             <div style="color: {'#00ffaa' if signal['signal'] == 'LONG' else ('#ff4444' if signal['signal'] == 'SHORT' else '#ffaa00')}">
                 {signal_icon} {signal['signal']}
@@ -757,7 +829,8 @@ with col_btn1:
             'na': current_na,
             'signal': final_signal['signal'][:20],
             'funding': funding_rate,
-            'ls_ratio': ls_ratio
+            'ls_ratio': ls_ratio,
+            'fng': fng.get('value')
         })
         st.success("✅ Saved!")
 
@@ -776,7 +849,7 @@ if st.session_state.history:
 # ============================================
 st.markdown(f"""
 <div class="footer">
-    <p>🔄 Data Sources: Bitnodes API | Coinglass API | Binance API</p>
+    <p>🔄 Data Sources: Bitnodes API | Binance API | Alternative.me API (All FREE)</p>
     <p>📡 Last Update: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
     <p>⚠️ DISCLAIMER: Trading signals for informational purposes only. Always DYOR.</p>
 </div>
