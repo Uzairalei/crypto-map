@@ -1,16 +1,14 @@
 import streamlit as st
-import requests
 import pandas as pd
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import numpy as np
+import requests
+from datetime import datetime
 import time
 
 # ============================================
 # PAGE CONFIGURATION
 # ============================================
 st.set_page_config(
-    page_title="UZair Ali Dark Crypto - Professional Trading Signals",
+    page_title="UZair Ali Dark Crypto - Scalping Strategy",
     page_icon="🌑",
     layout="wide"
 )
@@ -29,7 +27,6 @@ st.markdown("""
     .main-header {
         text-align: center;
         padding: 25px;
-        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
         border-bottom: 2px solid #00ffaa;
         margin-bottom: 20px;
     }
@@ -39,12 +36,6 @@ st.markdown("""
         color: #00ffaa;
         font-size: 2.5em;
         text-shadow: 0 0 15px #00ffaa;
-        letter-spacing: 3px;
-    }
-    
-    .main-header p {
-        color: #88ffcc;
-        font-family: monospace;
     }
     
     .signal-box {
@@ -55,21 +46,18 @@ st.markdown("""
         text-align: center;
     }
     
-    .signal-bullish {
+    .signal-long {
         border: 2px solid #00ffaa;
         box-shadow: 0 0 30px rgba(0,255,170,0.3);
-        background: linear-gradient(135deg, rgba(0,255,170,0.1), rgba(0,255,170,0.05));
     }
     
-    .signal-bearish {
+    .signal-short {
         border: 2px solid #ff4444;
         box-shadow: 0 0 30px rgba(255,68,68,0.3);
-        background: linear-gradient(135deg, rgba(255,68,68,0.1), rgba(255,68,68,0.05));
     }
     
     .signal-neutral {
         border: 2px solid #ffaa00;
-        box-shadow: 0 0 30px rgba(255,170,0,0.3);
     }
     
     .stat-card {
@@ -86,6 +74,25 @@ st.markdown("""
         color: #00ffaa;
     }
     
+    .session-active {
+        color: #00ffaa;
+        font-weight: bold;
+        animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    .confirmation-item {
+        padding: 10px;
+        margin: 8px 0;
+        border-left: 3px solid #00ffaa;
+        background: rgba(0,255,170,0.05);
+        border-radius: 5px;
+    }
+    
     .footer {
         text-align: center;
         padding: 20px;
@@ -93,39 +100,6 @@ st.markdown("""
         font-size: 0.8em;
         border-top: 1px solid #2a2f4a;
         margin-top: 30px;
-    }
-    
-    .confirmation-item {
-        padding: 8px;
-        margin: 5px 0;
-        border-left: 3px solid #00ffaa;
-        background: rgba(0,255,170,0.05);
-    }
-    
-    .coin-card {
-        background: #0f1322;
-        border: 1px solid #2a2f4a;
-        border-radius: 10px;
-        padding: 12px;
-        text-align: center;
-        transition: all 0.3s;
-    }
-    
-    .coin-card:hover {
-        border-color: #00ffaa;
-        transform: translateY(-2px);
-    }
-    
-    .metric-good {
-        color: #00ffaa;
-    }
-    
-    .metric-bad {
-        color: #ff4444;
-    }
-    
-    .metric-warning {
-        color: #ffaa00;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -136,36 +110,65 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>🌑 UZAIR ALI DARK CRYPTO</h1>
-    <p>Professional Trading Signals | Bitnodes + Binance + Fear & Greed | Multi-Factor AI Analysis</p>
+    <p>Daily Scalping Strategy | 90% Discipline | Session-Based Trading</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ============================================
 # SESSION STATE
 # ============================================
-if 'prev_tor' not in st.session_state:
-    st.session_state.prev_tor = None
-if 'prev_na' not in st.session_state:
-    st.session_state.prev_na = None
-if 'history' not in st.session_state:
-    st.session_state.history = []
+if 'btc_direction' not in st.session_state:
+    st.session_state.btc_direction = None
+if 'selected_coins' not in st.session_state:
+    st.session_state.selected_coins = []
+if 'trade_history' not in st.session_state:
+    st.session_state.trade_history = []
 
 # ============================================
-# FREE API FUNCTIONS (No API Key Required)
+# CHECK TRADING SESSION
 # ============================================
+def get_current_session():
+    """Check which trading session is active (PKT Time = UTC+5)"""
+    now = datetime.now()
+    current_hour = now.hour
+    current_minute = now.minute
+    current_time_minutes = current_hour * 60 + current_minute
+    
+    # Session definitions (PKT time)
+    asia_start = 5 * 60      # 5:00 AM
+    asia_end = 11 * 60       # 11:00 AM
+    
+    europe_start = 12 * 60   # 12:00 PM
+    europe_end = 14 * 60     # 2:00 PM
+    
+    us_start = 17 * 60 + 55  # 5:55 PM
+    us_end = 18 * 60 + 20    # 6:20 PM
+    
+    if asia_start <= current_time_minutes <= asia_end:
+        return "ASIA SESSION", True, "5:00 AM - 11:00 AM PKT"
+    elif europe_start <= current_time_minutes <= europe_end:
+        return "EUROPE OPEN", True, "12:00 PM - 2:00 PM PKT"
+    elif us_start <= current_time_minutes <= us_end:
+        return "US OPEN POWER ZONE", True, "5:55 PM - 6:20 PM PKT"
+    else:
+        return "OFF HOURS", False, "No active session - Wait for next session"
 
-def fetch_bitnodes_data():
-    """Fetch real data from Bitnodes API - FREE"""
+# ============================================
+# BITNODES API (Simple TOR + NA)
+# ============================================
+@st.cache_data(ttl=60)
+def fetch_bitnodes():
+    """Simple Bitnodes data fetch"""
     try:
         url = "https://bitnodes.io/api/v1/snapshots/latest/"
-        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-        response = requests.get(url, headers=headers, timeout=15)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
             total_nodes = data.get('total_nodes', 0)
-            timestamp = data.get('timestamp', 0)
             
+            # Count TOR nodes
             tor_count = 0
             for node_addr in data.get('nodes', {}).keys():
                 if '.onion' in node_addr.lower():
@@ -176,647 +179,358 @@ def fetch_bitnodes_data():
             return {
                 'tor': round(tor_percentage, 2),
                 'na': total_nodes,
-                'timestamp': datetime.fromtimestamp(timestamp) if timestamp else datetime.now(),
                 'success': True
             }
-        else:
-            return generate_mock_bitnodes()
-    except Exception as e:
-        return generate_mock_bitnodes()
-
-def generate_mock_bitnodes():
-    import random
-    return {
-        'tor': round(65.2 + (random.random() - 0.5) * 1.5, 2),
-        'na': int(23800 + (random.random() - 0.5) * 300),
-        'timestamp': datetime.now(),
-        'success': False
-    }
-
-def fetch_binance_funding_rate(symbol="BTCUSDT"):
-    """Fetch funding rate from Binance Futures - FREE"""
-    try:
-        url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            funding_rate = float(data.get('lastFundingRate', 0))
-            
-            return {
-                'funding_rate': funding_rate,
-                'funding_rate_percent': funding_rate * 100,
-                'mark_price': float(data.get('markPrice', 0))
-            }
-        else:
-            return None
-    except Exception as e:
-        return None
-
-def fetch_binance_long_short_ratio(symbol="BTCUSDT"):
-    """Fetch Top Trader Long/Short Account Ratio from Binance - FREE"""
-    try:
-        url = f"https://fapi.binance.com/fapi/v1/topLongShortAccountRatio?symbol={symbol}&period=1h&limit=1"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data and len(data) > 0:
-                latest = data[0]
-                long_ratio = float(latest.get('longAccount', 0))
-                short_ratio = float(latest.get('shortAccount', 0))
-                return {
-                    'long_ratio': long_ratio,
-                    'short_ratio': short_ratio,
-                    'ls_ratio': long_ratio / short_ratio if short_ratio > 0 else 1
-                }
-        return None
-    except Exception as e:
-        return None
-
-def fetch_binance_price(symbol="BTCUSDT"):
-    """Fetch current price and 24h change from Binance - FREE"""
-    try:
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'price': float(data.get('lastPrice', 0)),
-                'price_change_percent': float(data.get('priceChangePercent', 0)),
-                'high_24h': float(data.get('highPrice', 0)),
-                'low_24h': float(data.get('lowPrice', 0)),
-                'volume': float(data.get('volume', 0))
-            }
-        else:
-            return generate_mock_price(symbol)
-    except Exception as e:
-        return generate_mock_price(symbol)
-
-def generate_mock_price(symbol):
-    import random
-    base_price = 65000 if 'BTC' in symbol else (3500 if 'ETH' in symbol else 150)
-    return {
-        'price': round(base_price + (random.random() - 0.5) * 200, 2),
-        'price_change_percent': round((random.random() - 0.5) * 3, 2),
-        'high_24h': round(base_price + 100, 2),
-        'low_24h': round(base_price - 100, 2),
-        'volume': round(random.random() * 10000, 2)
-    }
-
-def fetch_fear_greed_index():
-    """Fetch Crypto Fear & Greed Index from Alternative.me - FREE"""
-    try:
-        url = "https://api.alternative.me/fng/?limit=1"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('data') and len(data['data']) > 0:
-                latest = data['data'][0]
-                return {
-                    'value': int(latest.get('value', 50)),
-                    'classification': latest.get('value_classification', 'Neutral')
-                }
-        return {'value': 50, 'classification': 'Neutral'}
-    except Exception as e:
-        return {'value': 50, 'classification': 'Neutral'}
+    except:
+        pass
+    
+    # Fallback
+    return {'tor': 65.2, 'na': 23800, 'success': False}
 
 # ============================================
-# SIGNAL CALCULATION ENGINE
+# SCALPING SIGNAL GENERATOR (Sirf Aapki Strategy)
 # ============================================
-
-def calculate_numerology(value):
-    """Reduce number to 1-9"""
-    if value is None:
-        return None
-    num_str = str(value).replace('.', '')
-    total = sum(int(d) for d in num_str if d.isdigit())
-    while total > 9:
-        total = sum(int(d) for d in str(total))
-    return total
-
-def get_astro_window(utc_time):
-    hour = utc_time.hour
-    minute = utc_time.minute
+def generate_scalp_signal(btc_direction, volume_spike, ob_imbalance, tor, na):
+    """
+    Generate signal based on:
+    1. BTC direction (bullish/bearish)
+    2. Volume spike (2x+)
+    3. Orderbook imbalance (>0.15 or <-0.15)
+    4. TOR % (extra filter)
+    """
     
-    if (hour == 9 and 10 <= minute <= 30):
-        return "🌙 MICRO-REVERSAL BAND - Be cautious", True
-    elif (hour == 4 and 0 <= minute <= 30):
-        return "🌅 RE-ENTRY GATE - Accumulation zone", False
-    elif (5 <= hour < 11):
-        return "🌏 ASIA SESSION - High liquidity", False
-    elif (12 <= hour < 14):
-        return "☀️ EUROPE OPEN - High volatility", False
-    elif (hour == 17 and minute >= 55) or (hour == 18 and minute <= 20):
-        return "🔥 US OPEN POWER ZONE - Maximum liquidity", False
-    else:
-        return "⚡ NORMAL WINDOW", False
-
-def get_slope_pattern(delta_tor, delta_na):
-    if delta_tor > 0 and delta_na > 0:
-        return "🚀 SYNCHRONIZED BULLISH", "bullish", "Both rising - Strong momentum"
-    elif delta_tor < 0 and delta_na < 0:
-        return "📉 SYNCHRONIZED BEARISH", "bearish", "Both falling - Selling pressure"
-    elif delta_tor > 0 and delta_na < 0:
-        return "⚠️ DIVERGENCE", "neutral", "TOR up, NA down - Limited fuel"
-    elif delta_tor < 0 and delta_na > 0:
-        return "🔄 ACCUMULATION", "bullish", "Smart money buying dip"
-    else:
-        return "⚡ NEUTRAL", "neutral", "Mixed signals"
-
-def calculate_momentum(delta_tor, delta_na):
-    tor_score = 1 if delta_tor > 0 else (-1 if delta_tor < 0 else 0)
-    na_score = 1 if delta_na > 0 else (-1 if delta_na < 0 else 0)
-    return tor_score * 2 + na_score
-
-def get_tor_speed(delta_tor):
-    if delta_tor >= 0.4:
-        return "FAST JUMP", "bullish", "Strong breakout expected (PUMP)"
-    elif delta_tor <= -0.4:
-        return "FAST DROP", "bearish", "Strong dump expected (DUMP)"
-    elif delta_tor >= 0.2:
-        return "MODERATE RISE", "bullish", "Moderate momentum"
-    elif delta_tor <= -0.2:
-        return "MODERATE DROP", "bearish", "Moderate selling"
-    else:
-        return "SLOW CHANGE", "neutral", "Likely fakeout"
-
-def get_funding_signal(funding_rate_percent):
-    """Interpret funding rate signal - FIXED for None values"""
-    if funding_rate_percent is None:
-        return "⚡ NO DATA", "neutral", "Funding rate unavailable"
+    confirmations = []
+    is_bullish = False
+    is_bearish = False
     
-    if funding_rate_percent > 0.01:
-        return "🔴 EXTREME POSITIVE", "bearish", f"Funding {funding_rate_percent:.4f}% - Overheated longs"
-    elif funding_rate_percent > 0.005:
-        return "🟡 POSITIVE", "neutral", f"Funding {funding_rate_percent:.4f}% - Longs paying"
-    elif funding_rate_percent < -0.01:
-        return "🟢 EXTREME NEGATIVE", "bullish", f"Funding {funding_rate_percent:.4f}% - Shorts paying"
-    elif funding_rate_percent < -0.005:
-        return "🟢 NEGATIVE", "bullish", f"Funding {funding_rate_percent:.4f}% - Shorts paying"
+    # Check 1: BTC Direction (Primary Filter)
+    if btc_direction == "bullish":
+        confirmations.append("✅ BTC: BULLISH (Higher highs forming)")
+        is_bullish = True
+    elif btc_direction == "bearish":
+        confirmations.append("❌ BTC: BEARISH (Lower lows forming)")
+        is_bearish = True
     else:
-        return "⚡ NEUTRAL", "neutral", f"Funding {funding_rate_percent:.4f}% - Normal"
-
-def get_fear_greed_signal(fng_value):
-    """Interpret Fear & Greed Index signal"""
-    if fng_value is None:
-        return "⚡ NO DATA", "neutral"
+        confirmations.append("⚠️ BTC: Direction not set - Select BTC direction first")
+        return None, confirmations
     
-    if fng_value <= 25:
-        return "🟢 EXTREME FEAR", "bullish"
-    elif fng_value <= 40:
-        return "🟢 FEAR", "bullish"
-    elif fng_value <= 60:
-        return "⚡ NEUTRAL", "neutral"
-    elif fng_value <= 75:
-        return "🟡 GREED", "bearish"
+    # Check 2: Volume Spike
+    if volume_spike:
+        confirmations.append("✅ Volume: 2x+ spike detected")
     else:
-        return "🔴 EXTREME GREED", "bearish"
-
-def get_ls_ratio_signal(ls_ratio):
-    """Interpret long/short ratio signal"""
-    if ls_ratio is None:
-        return "⚡ NO DATA", "neutral"
+        confirmations.append("❌ Volume: No spike detected - Wait for volume confirmation")
+        if is_bullish or is_bearish:
+            return "WAIT", confirmations
+        return None, confirmations
     
-    if ls_ratio > 2:
-        return "🔴 EXTREME LONG", "bearish"
-    elif ls_ratio > 1.5:
-        return "🟡 LONG DOMINANT", "neutral"
-    elif ls_ratio < 0.5:
-        return "🟢 EXTREME SHORT", "bullish"
-    elif ls_ratio < 0.8:
-        return "🟢 SHORT DOMINANT", "bullish"
-    else:
-        return "⚡ BALANCED", "neutral"
-
-# ============================================
-# FINAL ACCURATE SIGNAL
-# ============================================
-
-def get_final_signal(tor, delta_tor, na, delta_na, funding_rate_percent, 
-                     ls_ratio, fng_value, price_change_percent):
-    """Combine all factors for final accurate signal"""
-    
-    signals = []
-    bullish_score = 0
-    bearish_score = 0
-    
-    # 1. Bitnodes Signal (Highest Weight - TOR 2x)
-    if tor >= 66.5 and delta_tor >= 0.1 and na >= 23500:
-        signals.append("✅ Bitnodes: STRONG BULLISH")
-        bullish_score += 3
-    elif tor >= 65.5 and delta_tor > 0:
-        signals.append("✅ Bitnodes: BULLISH")
-        bullish_score += 2
-    elif tor < 64 and delta_tor < 0:
-        signals.append("❌ Bitnodes: BEARISH")
-        bearish_score += 3
-    elif tor < 65 and delta_tor < 0:
-        signals.append("❌ Bitnodes: WEAK BEARISH")
-        bearish_score += 1
-    else:
-        signals.append("⚡ Bitnodes: NEUTRAL")
-    
-    # 2. Funding Rate Signal
-    if funding_rate_percent is not None:
-        if funding_rate_percent < -0.005:
-            signals.append(f"✅ Funding: NEGATIVE ({funding_rate_percent:.4f}%) - Bullish")
-            bullish_score += 2
-        elif funding_rate_percent > 0.005:
-            signals.append(f"❌ Funding: POSITIVE ({funding_rate_percent:.4f}%) - Bearish")
-            bearish_score += 2
+    # Check 3: Orderbook Imbalance
+    if ob_imbalance > 0.15:
+        confirmations.append(f"✅ Orderbook: Buy wall {ob_imbalance*100:.0f}% larger - BULLISH")
+        if is_bullish:
+            is_bullish = True
         else:
-            signals.append(f"⚡ Funding: NEUTRAL ({funding_rate_percent:.4f}%)")
-    
-    # 3. Long/Short Ratio Signal
-    if ls_ratio is not None:
-        if ls_ratio < 0.7:
-            signals.append(f"✅ L/S Ratio: {ls_ratio:.2f} (Short dominant) - Bullish")
-            bullish_score += 2
-        elif ls_ratio > 1.5:
-            signals.append(f"❌ L/S Ratio: {ls_ratio:.2f} (Long dominant) - Bearish")
-            bearish_score += 2
+            confirmations.append("⚠️ OB bullish but BTC bearish - No trade")
+            return "WAIT", confirmations
+    elif ob_imbalance < -0.15:
+        confirmations.append(f"✅ Orderbook: Sell wall {abs(ob_imbalance)*100:.0f}% larger - BEARISH")
+        if is_bearish:
+            is_bearish = True
         else:
-            signals.append(f"⚡ L/S Ratio: {ls_ratio:.2f} - Neutral")
+            confirmations.append("⚠️ OB bearish but BTC bullish - No trade")
+            return "WAIT", confirmations
+    else:
+        confirmations.append(f"❌ Orderbook: Imbalance {ob_imbalance:.2f} (needs >0.15 or <-0.15)")
+        return "WAIT", confirmations
     
-    # 4. Fear & Greed Signal
-    if fng_value is not None:
-        if fng_value <= 40:
-            signals.append(f"✅ Fear & Greed: {fng_value} (FEAR) - Bullish")
-            bullish_score += 2
-        elif fng_value >= 70:
-            signals.append(f"❌ Fear & Greed: {fng_value} (GREED) - Bearish")
-            bearish_score += 2
-        else:
-            signals.append(f"⚡ Fear & Greed: {fng_value} - Neutral")
+    # Check 4: TOR % Extra Filter (Optional but strong)
+    if tor >= 65.5:
+        confirmations.append(f"✅ TOR: {tor}% (Bullish confirmation)")
+    elif tor <= 64:
+        confirmations.append(f"✅ TOR: {tor}% (Bearish confirmation)")
+    else:
+        confirmations.append(f"⚡ TOR: {tor}% (Neutral - still tradeable)")
     
-    # 5. Price Action
-    if price_change_percent is not None:
-        if price_change_percent > 2:
-            signals.append(f"✅ Price: +{price_change_percent:.2f}% - Strong uptrend")
-            bullish_score += 1
-        elif price_change_percent < -2:
-            signals.append(f"❌ Price: {price_change_percent:.2f}% - Strong downtrend")
-            bearish_score += 1
-    
-    # Final Decision
-    if bullish_score >= bearish_score + 3:
+    # Final Signal Decision
+    if is_bullish:
         return {
-            'signal': '🟢🟢 ACCURATE LONG SIGNAL 🟢🟢',
-            'type': 'bullish',
-            'confidence': f'{min(95, 70 + bullish_score * 5)}%',
+            'signal': '🟢🟢 LONG SCALP SIGNAL 🟢🟢',
+            'type': 'long',
             'action': 'ENTER LONG POSITION',
-            'target': '0.5-0.8%',
-            'stop': '-0.25%',
-            'leverage': '5x-10x',
-            'signals': signals,
-            'score': f'Bullish: {bullish_score} | Bearish: {bearish_score}'
-        }
-    elif bearish_score >= bullish_score + 3:
+            'target': '0.4% - 0.7%',
+            'stop': '-0.3%',
+            'leverage': '5x - 10x'
+        }, confirmations
+    elif is_bearish:
         return {
-            'signal': '🔴🔴 ACCURATE SHORT SIGNAL 🔴🔴',
-            'type': 'bearish',
-            'confidence': f'{min(95, 70 + bearish_score * 5)}%',
+            'signal': '🔴🔴 SHORT SCALP SIGNAL 🔴🔴',
+            'type': 'short',
             'action': 'ENTER SHORT POSITION',
-            'target': '0.4-0.7%',
-            'stop': '-0.25%',
-            'leverage': '5x-10x',
-            'signals': signals,
-            'score': f'Bullish: {bullish_score} | Bearish: {bearish_score}'
-        }
+            'target': '0.4% - 0.7%',
+            'stop': '-0.3%',
+            'leverage': '5x - 10x'
+        }, confirmations
     else:
-        return {
-            'signal': '🟡 NO ACCURATE SIGNAL - WAIT 🟡',
-            'type': 'neutral',
-            'confidence': 'LOW',
-            'action': 'WAIT FOR CONFIRMATION',
-            'target': 'N/A',
-            'stop': 'N/A',
-            'leverage': 'N/A',
-            'signals': signals,
-            'score': f'Bullish: {bullish_score} | Bearish: {bearish_score}'
-        }
+        return "WAIT", confirmations
 
 # ============================================
-# COIN SIGNALS FOR ALTCOINS
+# COIN SELECTION (Manual - Aap Choose Karo)
 # ============================================
-
-def get_multiple_coin_data():
-    """Fetch data for multiple coins"""
-    coins = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
-    results = {}
-    
-    for symbol in coins:
-        price_data = fetch_binance_price(symbol)
-        
-        results[symbol.replace('USDT', '')] = {
-            'price': price_data.get('price', 0),
-            'price_change': price_data.get('price_change_percent', 0)
-        }
-    
-    return results
-
-def get_coin_signals(coin_data, final_signal_type):
-    """Generate signals for multiple coins"""
-    signals = []
-    
-    coins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'LINK']
-    
-    for coin in coins:
-        data = coin_data.get(coin, {})
-        price_change = data.get('price_change', 0)
-        
-        if final_signal_type == 'bullish':
-            if price_change > 0:
-                signal = "LONG"
-                confidence = "HIGH"
-            else:
-                signal = "LONG (DIP)"
-                confidence = "MEDIUM"
-            entry = data.get('price', 'Market')
-        elif final_signal_type == 'bearish':
-            if price_change < 0:
-                signal = "SHORT"
-                confidence = "HIGH"
-            else:
-                signal = "SHORT (RALLY)"
-                confidence = "MEDIUM"
-            entry = data.get('price', 'Market')
-        else:
-            signal = "NEUTRAL"
-            confidence = "LOW"
-            entry = "No entry"
-        
-        signals.append({
-            'symbol': coin,
-            'signal': signal,
-            'confidence': confidence,
-            'entry': f'${entry:,.2f}' if isinstance(entry, (int, float)) and entry > 0 else entry,
-            'price_change': f'{price_change:+.2f}%' if price_change != 0 else 'N/A'
-        })
-    
-    return signals
+def get_coin_list():
+    return ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'LINK', 'ARB', 'OP']
 
 # ============================================
 # MAIN APP
 # ============================================
 
-# Fetch all data
-with st.spinner('🔄 Fetching live data from Bitnodes, Binance, and Alternative.me...'):
-    bitnodes = fetch_bitnodes_data()
-    
-    # Binance Futures Data
-    btc_funding = fetch_binance_funding_rate("BTCUSDT")
-    btc_ls = fetch_binance_long_short_ratio("BTCUSDT")
-    btc_price = fetch_binance_price("BTCUSDT")
-    
-    # Fear & Greed
-    fng = fetch_fear_greed_index()
-    
-    # Multi-coin data
-    coin_data = get_multiple_coin_data()
-
+# Fetch Bitnodes data
+bitnodes = fetch_bitnodes()
 current_tor = bitnodes['tor']
 current_na = bitnodes['na']
-current_time = bitnodes['timestamp']
 
-# Calculate deltas
-delta_tor = current_tor - st.session_state.prev_tor if st.session_state.prev_tor else 0
-delta_na = current_na - st.session_state.prev_na if st.session_state.prev_na else 0
-
-# Get analysis
-momentum = calculate_momentum(delta_tor, delta_na)
-slope_text, slope_type, slope_desc = get_slope_pattern(delta_tor, delta_na)
-tor_speed_name, tor_speed_type, tor_speed_desc = get_tor_speed(delta_tor)
-astro_label, is_reversal = get_astro_window(current_time)
-tor_num = calculate_numerology(current_tor)
-na_num = calculate_numerology(current_na)
-
-# Signals from APIs - FIXED: Handle None values
-funding_rate = btc_funding.get('funding_rate_percent') if btc_funding else None
-funding_text, funding_type, funding_desc = get_funding_signal(funding_rate)
-
-ls_ratio = btc_ls.get('ls_ratio') if btc_ls else None
-ls_text, ls_type = get_ls_ratio_signal(ls_ratio)
-
-fng_text, fng_type = get_fear_greed_signal(fng.get('value'))
-
-# Format values for display - FIXED: Check None before formatting
-funding_display = f"{funding_rate:.4f}%" if funding_rate is not None else "N/A"
-ls_ratio_display = f"{ls_ratio:.2f}" if ls_ratio is not None else "N/A"
-
-# Final accurate signal
-final_signal = get_final_signal(
-    current_tor, delta_tor, current_na, delta_na,
-    funding_rate, ls_ratio, fng.get('value'),
-    btc_price.get('price_change_percent', 0)
-)
-
-# Generate coin signals
-coin_signals = get_coin_signals(coin_data, final_signal['type'])
-
-# Update session state
-st.session_state.prev_tor = current_tor
-st.session_state.prev_na = current_na
+# Check current session
+session_name, is_active, session_time = get_current_session()
 
 # ============================================
-# DISPLAY - STATISTICS ROW
+# SESSION STATUS DISPLAY
 # ============================================
-st.markdown("### 📊 LIVE MARKET DATA")
+st.markdown("### ⏰ TRADING SESSION STATUS")
 
-col1, col2, col3, col4, col5 = st.columns(5)
+if is_active:
+    st.markdown(f'<div class="stat-card"><div class="session-active">🔴 LIVE SESSION: {session_name}</div><div>{session_time}</div><div>🔥 Fast pumps/dumps expected</div></div>', unsafe_allow_html=True)
+else:
+    st.markdown(f'<div class="stat-card"><div>⏸️ {session_name}</div><div>{session_time}</div><div>⚠️ No trade - Wait for Asia/Europe/US session</div></div>', unsafe_allow_html=True)
+
+# ============================================
+# STEP 1: BTC DIRECTION (Manual Input)
+# ============================================
+st.markdown("### 📊 STEP 1: BTC DIRECTION (Primary Filter)")
+
+col1, col2 = st.columns(2)
 
 with col1:
-    delta_color = "#00ffaa" if delta_tor > 0 else ("#ff4444" if delta_tor < 0 else "#ffaa00")
+    if st.button("🐂 BTC BULLISH", use_container_width=True):
+        st.session_state.btc_direction = "bullish"
+        st.success("✅ BTC Direction: BULLISH - Only LONG setups for alts")
+
+with col2:
+    if st.button("🐻 BTC BEARISH", use_container_width=True):
+        st.session_state.btc_direction = "bearish"
+        st.success("✅ BTC Direction: BEARISH - Only SHORT setups for alts")
+
+if st.session_state.btc_direction:
+    st.info(f"Current BTC Direction: {'🟢 BULLISH (Long only)' if st.session_state.btc_direction == 'bullish' else '🔴 BEARISH (Short only)'}")
+
+# ============================================
+# STEP 2: COIN SELECTION
+# ============================================
+st.markdown("### 💰 STEP 2: SELECT COINS (Top Volume Gainers)")
+
+coins = get_coin_list()
+selected_coins = st.multiselect("Select 2-3 high-volume coins for scalping", coins, default=['SOL', 'ETH'])
+
+if selected_coins:
+    st.info(f"Selected coins: {', '.join(selected_coins)}")
+
+# ============================================
+# STEP 3: ENTRY CONFIRMATIONS
+# ============================================
+st.markdown("### ✅ STEP 3: ENTRY CONFIRMATIONS (All 3 required)")
+
+col_c1, col_c2, col_c3 = st.columns(3)
+
+with col_c1:
+    volume_spike = st.checkbox("📊 Volume Spike (2x-3x average)", value=False)
+    st.caption("Coin me volume spike candle")
+
+with col_c2:
+    ob_imbalance = st.slider("📚 Orderbook Imbalance", -0.5, 0.5, 0.0, 0.05)
+    st.caption(">0.15 = Long | <-0.15 = Short")
+
+with col_c3:
+    st.metric("🌐 TOR % (Extra Filter)", f"{current_tor}%", 
+              delta=None, delta_color="normal")
+    st.caption(f"NA: {current_na:,} nodes")
+
+# ============================================
+# STEP 4: GENERATE SIGNAL
+# ============================================
+st.markdown("### 🎯 STEP 4: SCALPING SIGNAL")
+
+if st.button("🔍 GENERATE SCALPING SIGNAL", use_container_width=True):
+    if not st.session_state.btc_direction:
+        st.error("❌ First select BTC Direction (Bullish/Bearish)")
+    elif not selected_coins:
+        st.error("❌ Select at least one coin")
+    else:
+        result, confirmations = generate_scalp_signal(
+            st.session_state.btc_direction,
+            volume_spike,
+            ob_imbalance,
+            current_tor,
+            current_na
+        )
+        
+        if result and result != "WAIT":
+            signal_class = "signal-long" if result['type'] == 'long' else "signal-short"
+            st.markdown(f"""
+            <div class="signal-box {signal_class}">
+                <div style="font-size: 2em; font-weight: bold;">{result['signal']}</div>
+                <div style="font-size: 1.2em; margin: 10px 0;">🎯 ACTION: {result['action']}</div>
+                <div>📈 TARGET: {result['target']} | 🛑 STOP: {result['stop']} | ⚡ LEVERAGE: {result['leverage']}</div>
+                <div style="margin-top: 10px;">💰 Coins: {', '.join(selected_coins)}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        elif result == "WAIT":
+            st.warning("🟡 NO SIGNAL - WAIT for all confirmations")
+        else:
+            st.error("❌ Missing confirmations - Check all boxes")
+        
+        # Show confirmations
+        st.markdown("### 📋 CONFIRMATIONS CHECKLIST")
+        for conf in confirmations:
+            st.markdown(f'<div class="confirmation-item">{conf}</div>', unsafe_allow_html=True)
+
+# ============================================
+# BITNODES STATUS (Extra Filter)
+# ============================================
+st.markdown("### 🌐 BITNODES STATUS (Extra Confidence Filter)")
+
+col_b1, col_b2 = st.columns(2)
+
+with col_b1:
     st.markdown(f"""
     <div class="stat-card">
         <div>🌐 TOR %</div>
         <div class="stat-value">{current_tor}%</div>
-        <div style="color: {delta_color}">{delta_tor:+.2f}%</div>
+        <div>{'🟢 Bullish bias' if current_tor > 65.5 else ('🔴 Bearish bias' if current_tor < 64 else '🟡 Neutral')}</div>
     </div>
     """, unsafe_allow_html=True)
 
-with col2:
-    delta_color = "#00ffaa" if delta_na > 0 else ("#ff4444" if delta_na < 0 else "#ffaa00")
+with col_b2:
     st.markdown(f"""
     <div class="stat-card">
-        <div>📡 NETWORK AVAILABILITY</div>
+        <div>📡 Network Availability</div>
         <div class="stat-value">{current_na:,}</div>
-        <div style="color: {delta_color}">{delta_na:+,.0f}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    funding_color = "#00ffaa" if funding_rate is not None and funding_rate < -0.005 else ("#ff4444" if funding_rate is not None and funding_rate > 0.005 else "#ffaa00")
-    st.markdown(f"""
-    <div class="stat-card">
-        <div>💰 FUNDING RATE</div>
-        <div class="stat-value" style="color: {funding_color};">{funding_display}</div>
-        <div>{funding_desc[:25] if funding_desc else ''}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    st.markdown(f"""
-    <div class="stat-card">
-        <div>📊 L/S RATIO</div>
-        <div class="stat-value">{ls_ratio_display}</div>
-        <div>{ls_text}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col5:
-    fng_color = "#00ffaa" if fng.get('value', 50) <= 40 else ("#ff4444" if fng.get('value', 50) >= 70 else "#ffaa00")
-    st.markdown(f"""
-    <div class="stat-card">
-        <div>😨 FEAR & GREED</div>
-        <div class="stat-value" style="color: {fng_color};">{fng.get('value', 50)}</div>
-        <div>{fng.get('classification', 'Neutral')}</div>
+        <div>{'🟢 Strong network' if current_na > 23500 else ('🟡 Normal' if current_na > 20000 else '🔴 Weak')}</div>
     </div>
     """, unsafe_allow_html=True)
 
 # ============================================
-# FINAL ACCURATE SIGNAL
+# QUICK REFERENCE - PUMP/DUMP SIGNAL TABLE
 # ============================================
-st.markdown("### 🎯 ACCURATE TRADING SIGNAL")
+st.markdown("### 📖 QUICK REFERENCE: Pump/Dump Signal Table")
 
-signal_class = f"signal-{final_signal['type']}"
-st.markdown(f"""
-<div class="signal-box {signal_class}">
-    <div style="font-size: 2.5em; font-weight: bold;">{final_signal['signal']}</div>
-    <div style="font-size: 1.3em; margin: 10px 0;">Confidence: {final_signal['confidence']}</div>
-    <div style="margin: 15px 0; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 10px;">
-        <div>🎯 ACTION: {final_signal['action']}</div>
-        <div>📈 TARGET: {final_signal['target']} | 🛑 STOP: {final_signal['stop']} | ⚡ LEVERAGE: {final_signal['leverage']}</div>
-        <div style="margin-top: 5px; font-size: 0.9em;">{final_signal['score']}</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+pump_dump_data = {
+    "Condition": [
+        "PUMP Signal",
+        "DUMP Signal", 
+        "Fake Pump",
+        "No Clear Direction"
+    ],
+    "TOR %": [
+        "↑65.2% → 65.6%",
+        "↓66% → 65.5%",
+        "64%",
+        "63.5%"
+    ],
+    "NA Count": [
+        "21k+",
+        "19k",
+        "<17k",
+        "20k"
+    ],
+    "Speed": [
+        "Fast ↑",
+        "Fast ↓",
+        "Slow",
+        "Sudden ↑"
+    ],
+    "OB Imbalance": [
+        "Buy > Sell",
+        "Sell > Buy",
+        "Buy > Sell",
+        "Balanced"
+    ],
+    "Volume": [
+        "Yes",
+        "Yes",
+        "No",
+        "No"
+    ],
+    "Direction": [
+        "🟢 PUMP",
+        "🔴 DUMP",
+        "⚠️ Fake (dump expected)",
+        "⚡ No clear"
+    ]
+}
 
-# ============================================
-# CONFIRMATIONS
-# ============================================
-st.markdown("### ✅ SIGNAL CONFIRMATIONS")
-
-for sig in final_signal['signals']:
-    st.markdown(f'<div class="confirmation-item">{sig}</div>', unsafe_allow_html=True)
-
-# ============================================
-# DETAILED ANALYSIS
-# ============================================
-st.markdown("### 📈 DETAILED ANALYSIS")
-
-col_d1, col_d2 = st.columns(2)
-
-with col_d1:
-    st.markdown(f"""
-    <div class="stat-card">
-        <h4>📊 Slope Analysis</h4>
-        <div style="font-size: 1.3em;">{slope_text}</div>
-        <div>{slope_desc}</div>
-        <hr>
-        <h4>⚡ TOR Speed</h4>
-        <div style="color: {'#00ffaa' if tor_speed_type == 'bullish' else ('#ff4444' if tor_speed_type == 'bearish' else '#ffaa00')}">
-            {tor_speed_name}
-        </div>
-        <div>{tor_speed_desc}</div>
-        <hr>
-        <h4>⚡ Momentum Score</h4>
-        <div style="font-size: 1.5em;">{momentum:+d}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col_d2:
-    st.markdown(f"""
-    <div class="stat-card">
-        <h4>🌙 Astro Window</h4>
-        <div>{astro_label}</div>
-        <hr>
-        <h4>🔢 Numerology</h4>
-        <div>TOR: {tor_num if tor_num else '-'} | NA: {na_num if na_num else '-'}</div>
-        <hr>
-        <h4>💰 BTC Price</h4>
-        <div>${btc_price.get('price', 0):,.2f} ({btc_price.get('price_change_percent', 0):+.2f}%)</div>
-        <div>24h High: ${btc_price.get('high_24h', 0):,.2f} | Low: ${btc_price.get('low_24h', 0):,.2f}</div>
-    </div>
-    """, unsafe_allow_html=True)
+st.dataframe(pd.DataFrame(pump_dump_data), use_container_width=True, hide_index=True)
 
 # ============================================
-# ALTCOINS SIGNALS
+# RISK MANAGEMENT RULES
 # ============================================
-st.markdown("### 💰 ALTCOINS TRADING SIGNALS")
-
-# Display in grid
-cols = st.columns(5)
-for i, signal in enumerate(coin_signals[:10]):
-    with cols[i % 5]:
-        signal_icon = "🟢" if signal['signal'] == "LONG" else ("🔴" if signal['signal'] == "SHORT" else "🟡")
-        signal_color = "#00ffaa" if signal['signal'] == "LONG" else ("#ff4444" if signal['signal'] == "SHORT" else "#ffaa00")
-        st.markdown(f"""
-        <div class="coin-card">
-            <div style="font-size: 1.3em; font-weight: bold;">{signal['symbol']}</div>
-            <div style="color: {signal_color};">
-                {signal_icon} {signal['signal']}
-            </div>
-            <div>Confidence: {signal['confidence']}</div>
-            <div>Entry: {signal['entry']}</div>
-            <div>24h: {signal['price_change']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ============================================
-# RISK MANAGEMENT
-# ============================================
-st.markdown("### 🛡️ RISK MANAGEMENT")
+st.markdown("### 🛡️ RISK MANAGEMENT (90% Discipline)")
 
 col_r1, col_r2, col_r3 = st.columns(3)
 
 with col_r1:
-    st.info("📊 **Position Sizing**\n- Max 3 trades/day\n- Risk 1-2% per trade\n- 5x-10x leverage max")
+    st.info("📊 **Position Sizing**\n\n- Max 3 trades/day\n- Risk 1-2% per trade\n- 5x-10x leverage max")
 
 with col_r2:
-    st.warning("⛔ **Stop Loss Rules**\n- Default: 0.25%-0.4%\n- High leverage: 0.18%-0.25%\n- Always use hard stop")
+    st.warning("⛔ **Stop Loss**\n\n- Default: -0.3%\n- Always use hard stop\n- Move to breakeven at +0.3%")
 
 with col_r3:
-    st.success("🎯 **Take Profit**\n- Scale out 25-50% at 0.4-1.0%\n- Trail stop after 0.5%\n- Don't be greedy")
+    st.success("🎯 **Take Profit**\n\n- Target: 0.4%-0.7%\n- Scale out 50% at target\n- Don't get greedy")
 
 # ============================================
-# HISTORY & REFRESH
+# TRADE ENTRY FORM
 # ============================================
-col_btn1, col_btn2 = st.columns([1, 4])
+st.markdown("### 📝 TRADE ENTRY LOG")
 
-with col_btn1:
-    if st.button("💾 SAVE SIGNAL", use_container_width=True):
-        st.session_state.history.append({
-            'time': current_time.strftime('%H:%M:%S'),
-            'tor': current_tor,
-            'na': current_na,
-            'signal': final_signal['signal'][:20],
-            'funding': funding_rate,
-            'ls_ratio': ls_ratio,
-            'fng': fng.get('value')
+with st.form("trade_form"):
+    col_f1, col_f2, col_f3 = st.columns(3)
+    
+    with col_f1:
+        trade_coin = st.selectbox("Coin", selected_coins if selected_coins else coins)
+    with col_f2:
+        trade_type = st.selectbox("Type", ["LONG", "SHORT"])
+    with col_f3:
+        trade_leverage = st.selectbox("Leverage", [5, 10, 15, 20], index=0)
+    
+    submitted = st.form_submit_button("💾 LOG THIS TRADE")
+    
+    if submitted:
+        st.session_state.trade_history.append({
+            'time': datetime.now().strftime('%H:%M:%S'),
+            'coin': trade_coin,
+            'type': trade_type,
+            'leverage': trade_leverage,
+            'session': session_name
         })
-        st.success("✅ Saved!")
+        st.success(f"✅ Trade logged: {trade_coin} {trade_type} @ {trade_leverage}x")
 
-with col_btn2:
-    if st.button("🔄 REFRESH DATA", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-
-if st.session_state.history:
-    st.markdown("### 📜 SIGNAL HISTORY")
-    history_df = pd.DataFrame(st.session_state.history[-10:])
+# Display trade history
+if st.session_state.trade_history:
+    st.markdown("### 📜 TODAY'S TRADES")
+    history_df = pd.DataFrame(st.session_state.trade_history[-10:])
     st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+# ============================================
+# RESET BUTTON
+# ============================================
+if st.button("🔄 RESET ALL", use_container_width=True):
+    st.session_state.btc_direction = None
+    st.session_state.selected_coins = []
+    st.cache_data.clear()
+    st.rerun()
 
 # ============================================
 # FOOTER
 # ============================================
 st.markdown(f"""
 <div class="footer">
-    <p>🔄 Data Sources: Bitnodes API | Binance API | Alternative.me API (All FREE)</p>
-    <p>📡 Last Update: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
-    <p>⚠️ DISCLAIMER: Trading signals for informational purposes only. Always DYOR.</p>
+    <p>📡 Strategy: Daily Scalping | Sessions: Asia (5-11am) | Europe (12-2pm) | US Open (5:55-6:20pm PKT)</p>
+    <p>⚠️ 90% Discipline Required | Always use Stop Loss | Max 3 trades/day</p>
 </div>
 """, unsafe_allow_html=True)
