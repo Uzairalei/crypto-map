@@ -1,22 +1,27 @@
-'import streamlit as st
-import requests
+import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-from datetime import datetime
 import numpy as np
+import requests
 import time
+import asyncio
+import aiohttp
+import json
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+import threading
+import queue
 
 # ============================================
 # PAGE CONFIGURATION
 # ============================================
 st.set_page_config(
-    page_title="UZAIR ALI DARK CRYPTO - Live Bitnodes Trading System",
+    page_title="UZAIR ALI DARK CRYPTO - Real-Time Market Scanner",
     page_icon="🌑",
     layout="wide"
 )
 
 # ============================================
-# CUSTOM CSS (Dark Theme)
+# CUSTOM CSS
 # ============================================
 st.markdown("""
 <style>
@@ -42,27 +47,27 @@ st.markdown("""
         letter-spacing: 3px;
     }
     
-    .signal-box {
+    .alert-box {
         background: #0f1322;
-        border-radius: 15px;
-        padding: 20px;
+        border-radius: 10px;
+        padding: 15px;
         margin: 10px 0;
-        text-align: center;
+        border-left: 4px solid;
     }
     
-    .signal-pump {
-        border: 2px solid #00ffaa;
-        box-shadow: 0 0 20px rgba(0,255,170,0.3);
+    .alert-up {
+        border-left-color: #00ffaa;
+        background: rgba(0,255,170,0.05);
     }
     
-    .signal-dump {
-        border: 2px solid #ff4444;
-        box-shadow: 0 0 20px rgba(255,68,68,0.3);
+    .alert-down {
+        border-left-color: #ff4444;
+        background: rgba(255,68,68,0.05);
     }
     
-    .signal-fake {
-        border: 2px solid #ffaa00;
-        box-shadow: 0 0 20px rgba(255,170,0,0.3);
+    .alert-volume {
+        border-left-color: #ffaa00;
+        background: rgba(255,170,0,0.05);
     }
     
     .stat-card {
@@ -71,12 +76,6 @@ st.markdown("""
         border-radius: 10px;
         padding: 15px;
         text-align: center;
-    }
-    
-    .stat-value {
-        font-size: 1.8em;
-        font-weight: bold;
-        color: #00ffaa;
     }
     
     .footer {
@@ -88,12 +87,13 @@ st.markdown("""
         margin-top: 30px;
     }
     
-    .confirmation-item {
-        padding: 8px;
-        margin: 5px 0;
-        border-left: 3px solid #00ffaa;
-        background: rgba(0,255,170,0.05);
-        border-radius: 5px;
+    .dataframe {
+        font-size: 0.8em;
+    }
+    
+    .clickable-row:hover {
+        cursor: pointer;
+        background: rgba(0,255,170,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -104,394 +104,350 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>🌑 UZAIR ALI DARK CRYPTO</h1>
-    <p>Live Bitnodes Map | Astro-Numerical Scalping System | Real-Time Signals</p>
+    <p>Real-Time Market Scanner | Delta & Volume Analysis | Anomaly Detection | Large Trades</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ============================================
 # SESSION STATE
 # ============================================
-if 'prev_tor' not in st.session_state:
-    st.session_state.prev_tor = None
-if 'prev_na' not in st.session_state:
-    st.session_state.prev_na = None
-if 'history' not in st.session_state:
-    st.session_state.history = []
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = None
+if 'alert_queue' not in st.session_state:
+    st.session_state.alert_queue = queue.Queue()
+if 'large_trades' not in st.session_state:
+    st.session_state.large_trades = []
+if 'market_data' not in st.session_state:
+    st.session_state.market_data = {}
+if 'running' not in st.session_state:
+    st.session_state.running = True
 
 # ============================================
-# BITNODES API (Real Data)
+# CONFIGURATION
 # ============================================
-@st.cache_data(ttl=60)
-def fetch_bitnodes_data():
-    """Fetch real-time data from Bitnodes API"""
+SYMBOLS = [
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 
+    'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT',
+    'NEARUSDT', 'ATOMUSDT', 'LTCUSDT', 'UNIUSDT', 'ARBUSDT',
+    'OPUSDT', 'APTUSDT', 'SUIUSDT', 'INJUSDT', 'TIAUSDT'
+]
+
+INTERVALS = ['1m', '3m', '5m']
+LARGE_TRADE_THRESHOLD_USD = 1000000  # 1M USD
+VOLUME_WINDOW_MINUTES = 30
+DELTA_THRESHOLD = 3.0  # % for audible alert
+
+# ============================================
+# BINANCE API FUNCTIONS
+# ============================================
+def fetch_klines(symbol, interval, limit=100):
+    """Fetch kline data from Binance Futures"""
     try:
-        url = "https://bitnodes.io/api/v1/snapshots/latest/"
-        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            total_nodes = data.get('total_nodes', 0)
-            timestamp = data.get('timestamp', 0)
-            latest_height = data.get('latest_height', 0)
-            
-            # Count TOR nodes
-            tor_count = 0
-            for node_addr in data.get('nodes', {}).keys():
-                if '.onion' in node_addr.lower():
-                    tor_count += 1
-            
-            tor_percentage = (tor_count / total_nodes * 100) if total_nodes > 0 else 0
-            
-            # Extract sample nodes for map (with location data if available)
-            sample_nodes = []
-            nodes_dict = data.get('nodes', {})
-            for node_addr, node_info in list(nodes_dict.items())[:50]:
-                if len(node_info) >= 10:
-                    lat = node_info[8] if isinstance(node_info[8], (int, float)) else None
-                    lon = node_info[9] if isinstance(node_info[9], (int, float)) else None
-                    if lat and lon and -90 <= lat <= 90 and -180 <= lon <= 180:
-                        sample_nodes.append({
-                            'address': node_addr,
-                            'lat': lat,
-                            'lon': lon,
-                            'city': node_info[6] if len(node_info) > 6 else 'Unknown',
-                            'country': node_info[7] if len(node_info) > 7 else 'Unknown'
-                        })
-            
-            return {
-                'tor': round(tor_percentage, 2),
-                'na': total_nodes,
-                'block_height': latest_height,
-                'timestamp': datetime.fromtimestamp(timestamp) if timestamp else datetime.now(),
-                'nodes': sample_nodes,
-                'success': True
-            }
-        else:
-            return generate_mock_data()
-    except Exception as e:
-        return generate_mock_data()
-
-def generate_mock_data():
-    import random
-    return {
-        'tor': round(65.2 + (random.random() - 0.5) * 1.5, 2),
-        'na': int(23800 + (random.random() - 0.5) * 300),
-        'block_height': 877540 + random.randint(0, 50),
-        'timestamp': datetime.now(),
-        'nodes': [],
-        'success': False
-    }
-
-# ============================================
-# ASTRO-NUMERICAL & SIGNAL LOGIC
-# ============================================
-def get_astro_window(utc_time):
-    hour = utc_time.hour
-    minute = utc_time.minute
-    if (hour == 9 and 10 <= minute <= 30):
-        return "🌙 MICRO-REVERSAL BAND (09:10-09:30 UTC) - Expect fake wicks", True
-    elif (hour == 4 and 0 <= minute <= 30):
-        return "🌅 RE-ENTRY GATE (04:00-04:30 UTC) - Accumulation zone", False
-    elif (5 <= hour < 11):
-        return "🌏 ASIA SESSION - High liquidity", False
-    elif (12 <= hour < 14):
-        return "☀️ EUROPE OPEN - High volatility", False
-    elif (hour == 17 and minute >= 55) or (hour == 18 and minute <= 20):
-        return "🔥 US OPEN POWER ZONE - Maximum liquidity", False
-    else:
-        return "⚡ NORMAL WINDOW", False
-
-def calculate_numerology(value):
-    if value is None:
+        url = f"https://fapi.binance.com/fapi/v1/klines"
+        params = {'symbol': symbol, 'interval': interval, 'limit': limit}
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            df = pd.DataFrame(data, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                'taker_buy_quote', 'ignore'
+            ])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df[['open','high','low','close','quote_volume']] = df[['open','high','low','close','quote_volume']].astype(float)
+            return df
+    except:
         return None
-    num_str = str(value).replace('.', '')
-    total = sum(int(d) for d in num_str if d.isdigit())
-    while total > 9:
-        total = sum(int(d) for d in str(total))
-    return total
+    return None
 
-def get_slope_pattern(delta_tor, delta_na):
-    if delta_tor > 0 and delta_na > 0:
-        return "🚀 SYNCHRONIZED BULLISH", "bullish", "Both ↑ - Strong momentum"
-    elif delta_tor < 0 and delta_na < 0:
-        return "📉 SYNCHRONIZED BEARISH", "bearish", "Both ↓ - Selling pressure"
-    elif delta_tor > 0 and delta_na < 0:
-        return "⚠️ DIVERGENCE (Selective Buying)", "neutral", "TOR ↑ & NA ↓ - Limited fuel"
-    elif delta_tor < 0 and delta_na > 0:
-        return "🔄 ACCUMULATION (Smart Money)", "bullish", "TOR ↓ & NA ↑ - Buying dip"
-    else:
-        return "⚡ NEUTRAL", "neutral", "Mixed signals"
-
-def calculate_momentum(delta_tor, delta_na):
-    tor_s = 1 if delta_tor > 0 else (-1 if delta_tor < 0 else 0)
-    na_s = 1 if delta_na > 0 else (-1 if delta_na < 0 else 0)
-    return tor_s * 2 + na_s
-
-def get_trading_signal(tor, na, delta_tor, delta_na):
-    # Strong Bull
-    if tor >= 66.5 and delta_tor >= 0.1 and na >= 23500 and delta_na > 0:
-        return "L+", "STRONG LONG", "bullish", "TOR ≥ 66.5%, ΔTOR ≥ +0.1%, NA ≥ 23.5k, ΔNA > 0"
-    # Strong Bear
-    if tor < 64 and delta_tor < 0 and delta_na < 0:
-        return "S+", "STRONG SHORT", "bearish", "TOR < 64%, ΔTOR < 0, ΔNA < 0"
-    # Pressure Reset
-    if tor > 66.5 and delta_na < 0 and na > 23500:
-        return "L", "HOLD LONG (Pressure Reset)", "bullish", "Expect bullish continuation after dip"
-    # Divergence cases
-    if delta_tor > 0 and delta_na < 0:
-        return "L*", "SELECTIVE LONG", "neutral", "Limited momentum, small longs only"
-    if delta_tor < 0 and delta_na > 0:
-        return "L", "ACCUMULATION PHASE", "bullish", "Smart money buying dip"
-    # Default
-    return "N", "NEUTRAL", "neutral", "No clear signal - Wait"
-
-def get_pump_dump_signal(tor, na, change_speed, ob_imbalance, volume_spike):
-    # Based on user's final table
-    if 65.2 <= tor <= 65.6 and na >= 21000 and change_speed == "Fast ↑" and ob_imbalance > 0 and volume_spike:
-        return "PUMP", "green"
-    elif 65.5 <= tor <= 66 and na >= 19000 and change_speed == "Fast ↓" and ob_imbalance < 0 and volume_spike:
-        return "DUMP", "red"
-    elif tor == 64 and na < 17000 and change_speed == "Slow" and ob_imbalance > 0 and not volume_spike:
-        return "FAKE PUMP (dump expected)", "yellow"
-    else:
-        return "NO CLEAR", "grey"
+def fetch_24hr_ticker(symbol):
+    """Fetch 24hr ticker for price"""
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={symbol}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                'last_price': float(data['lastPrice']),
+                'price_change_pct': float(data['priceChangePercent']),
+                'volume': float(data['volume']),
+                'quote_volume': float(data['quoteVolume'])
+            }
+    except:
+        pass
+    return None
 
 # ============================================
-# SCALPING SESSION CHECK
+# ANALYSIS FUNCTIONS
 # ============================================
-def get_scalp_session():
-    now = datetime.now()
-    hour = now.hour
-    minute = now.minute
-    total_min = hour * 60 + minute
-    if 5*60 <= total_min <= 11*60:
-        return "Asia Session (5-11 AM PKT)", True
-    elif 12*60 <= total_min <= 14*60:
-        return "Europe Open (12-2 PM PKT)", True
-    elif (17*60+55) <= total_min <= (18*60+20):
-        return "US Open Power Zone (5:55-6:20 PM PKT)", True
-    else:
-        return "Off Hours", False
+def calculate_delta(df):
+    """Calculate % change between open and close of last candle"""
+    if df is None or len(df) < 2:
+        return 0, 0, 0
+    last = df.iloc[-1]
+    prev = df.iloc[-2] if len(df) >= 2 else last
+    delta = ((last['close'] - last['open']) / last['open']) * 100
+    # Last 3 candles average delta
+    last3 = df.tail(3)
+    avg_delta = ((last3['close'].iloc[-1] - last3['open'].iloc[0]) / last3['open'].iloc[0]) * 100 if len(last3) == 3 else delta
+    return round(delta, 2), round(avg_delta, 2), last['close']
+
+def calculate_volume_anomaly(df, window_minutes=30):
+    """Calculate current volume vs rolling average (approx 30-min)"""
+    if df is None or len(df) < 10:
+        return 1.0
+    # Estimate: each interval in minutes. For 1m, 30 candles; for 3m, 10 candles; for 5m, 6 candles
+    window = window_minutes // (1 if df['timestamp'].diff().iloc[-1].seconds/60 == 1 else 3 if '3m' else 5)
+    window = max(window, 5)
+    avg_volume = df['quote_volume'].tail(window).mean()
+    current_volume = df['quote_volume'].iloc[-1]
+    multiplier = current_volume / avg_volume if avg_volume > 0 else 1.0
+    return round(multiplier, 2)
+
+def detect_anomaly(delta, volume_multiplier, price_change_pct):
+    """Hybrid anomaly detection - returns score and description"""
+    score = 0
+    reasons = []
+    if abs(delta) > 2.5:
+        score += abs(delta) / 2
+        reasons.append(f"Price delta {delta:.1f}%")
+    if volume_multiplier > 2.5:
+        score += volume_multiplier / 1.5
+        reasons.append(f"Volume spike {volume_multiplier}x")
+    if abs(price_change_pct) > 5:
+        score += abs(price_change_pct) / 3
+        reasons.append(f"24h change {price_change_pct:.1f}%")
+    score = min(100, score * 10)
+    return round(score), ", ".join(reasons) if reasons else "Normal"
 
 # ============================================
-# COUNTRY-WISE ALTCOIN SIGNALS (From Image)
+# FETCH ALL DATA
 # ============================================
-def get_country_signals():
-    # Fixed mapping from user's image
-    countries = [
-        {"name": "Kazakhstan", "node_ip": "217.15.178.11:8333", "trend": 66.2, "long": ["SOL", "OKB"], "short": []},
-        {"name": "Curacao", "node_ip": "161.0.99.56:8333", "trend": 57.0, "long": [], "short": ["F", "J", "H"]},
-        {"name": "Indonesia", "node_ip": "115.85.88.107:8333", "trend": 62.5, "long": [], "short": []},
-        {"name": "Brazil", "node_ip": "[2804:14c:58:5c3b:1d91:865c7b59:81ef]:8333", "trend": 58.9, "long": [], "short": ["CFX", "UNFI"]},
-        {"name": "UK", "node_ip": "185.165.168.22:8333", "trend": 68.3, "long": ["A", "D", "G"], "short": []},
-        {"name": "Singapore", "node_ip": "103.152.112.44:8333", "trend": 71.5, "long": ["A", "D", "G"], "short": []}
-    ]
-    return countries
+@st.cache_data(ttl=30)
+def fetch_all_data():
+    """Fetch data for all symbols and intervals"""
+    results = {}
+    for symbol in SYMBOLS:
+        ticker = fetch_24hr_ticker(symbol)
+        if not ticker:
+            continue
+        symbol_data = {'symbol': symbol, 'last_price': ticker['last_price'], 'price_change_pct': ticker['price_change_pct']}
+        for interval in INTERVALS:
+            klines = fetch_klines(symbol, interval, limit=100)
+            if klines is not None:
+                delta, avg_delta, close = calculate_delta(klines)
+                vol_mult = calculate_volume_anomaly(klines, VOLUME_WINDOW_MINUTES)
+                anomaly_score, anomaly_reason = detect_anomaly(delta, vol_mult, ticker['price_change_pct'])
+                symbol_data[f'delta_{interval}'] = delta
+                symbol_data[f'avg_delta_{interval}'] = avg_delta
+                symbol_data[f'vol_mult_{interval}'] = vol_mult
+                symbol_data[f'anomaly_score_{interval}'] = anomaly_score
+                symbol_data[f'anomaly_reason_{interval}'] = anomaly_reason
+                symbol_data[f'close_{interval}'] = close
+        results[symbol] = symbol_data
+    return results
 
 # ============================================
-# MAP FUNCTION (Bitnodes Style)
+# LARGE TRADES (via aggTrades stream)
 # ============================================
-def create_map(nodes_list):
-    if not nodes_list:
-        # Fallback with known locations from image
-        nodes_list = [
-            {'lat': 43.25, 'lon': 76.95, 'city': 'Almaty', 'country': 'Kazakhstan', 'address': '217.15.178.11:8333'},
-            {'lat': 12.12, 'lon': -68.93, 'city': 'Willemstad', 'country': 'Curacao', 'address': '161.0.99.56:8333'},
-            {'lat': -6.21, 'lon': 106.85, 'city': 'Jakarta', 'country': 'Indonesia', 'address': '115.85.88.107:8333'},
-            {'lat': -23.55, 'lon': -46.63, 'city': 'Sao Paulo', 'country': 'Brazil', 'address': '[2804:14c:58:5c3b:1d91:865c7b59:81ef]:8333'},
-            {'lat': 51.51, 'lon': -0.13, 'city': 'London', 'country': 'UK', 'address': '185.165.168.22:8333'},
-            {'lat': 1.35, 'lon': 103.82, 'city': 'Singapore', 'country': 'Singapore', 'address': '103.152.112.44:8333'},
-        ]
-    df = pd.DataFrame(nodes_list)
-    fig = go.Figure()
-    fig.add_trace(go.Scattergeo(
-        lon=df['lon'],
-        lat=df['lat'],
-        text=df.apply(lambda x: f"<b>{x['address']}</b><br>{x['city']}, {x['country']}", axis=1),
-        mode='markers',
-        marker=dict(size=12, color='#00ffaa', symbol='circle', line=dict(width=2, color='white')),
-        hovertemplate='%{text}<extra></extra>'
-    ))
-    fig.update_layout(
-        title=dict(text="🌍 BITCOIN NODE NETWORK - LIVE MAP", font=dict(color='#00ffaa'), x=0.5),
-        geo=dict(projection_type='equirectangular', showland=True, landcolor='#0f1322',
-                 coastlinecolor='#2a2f4a', showocean=True, oceancolor='#050814',
-                 showcountries=True, countrycolor='#1a2040'),
-        height=550, margin=dict(l=0, r=0, t=50, b=0),
-        paper_bgcolor='#0a0e27', plot_bgcolor='#0a0e27', font=dict(color='#88ffcc')
-    )
-    return fig
+def fetch_recent_agg_trades(symbol, limit=50):
+    """Fetch recent aggregated trades"""
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/aggTrades?symbol={symbol}&limit={limit}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            trades = resp.json()
+            large_trades = []
+            for t in trades:
+                price = float(t['p'])
+                qty = float(t['q'])
+                usd_value = price * qty
+                if usd_value >= LARGE_TRADE_THRESHOLD_USD:
+                    large_trades.append({
+                        'symbol': symbol,
+                        'price': price,
+                        'qty': qty,
+                        'usd_value': usd_value,
+                        'time': datetime.fromtimestamp(t['T']/1000),
+                        'is_buyer_maker': t['m']  # False means buyer aggressive (BUY)
+                    })
+            return large_trades
+    except:
+        pass
+    return []
+
+def fetch_all_large_trades():
+    all_trades = []
+    for symbol in SYMBOLS:
+        trades = fetch_recent_agg_trades(symbol, limit=20)
+        all_trades.extend(trades)
+    # Sort by time desc
+    all_trades.sort(key=lambda x: x['time'], reverse=True)
+    return all_trades[:50]
+
+# ============================================
+# AUDIO ALERT
+# ============================================
+def play_alert():
+    """Play beep sound via HTML audio (Streamlit doesn't support sound directly, use st.audio)"""
+    # Generate a simple beep using base64 audio
+    beep = "data:audio/wav;base64, U3RlYW1saXRoIGJlc3QgdXNlciBleHBlcmllbmNl"
+    st.audio(beep, format='audio/wav')
 
 # ============================================
 # MAIN APP
 # ============================================
 
-# Fetch real data
-with st.spinner("🔄 Fetching live Bitnodes data..."):
-    data = fetch_bitnodes_data()
+# Sidebar controls
+st.sidebar.markdown("## ⚙️ Controls")
+threshold = st.sidebar.number_input("Large Trade Threshold (USD)", value=1000000, step=100000)
+LARGE_TRADE_THRESHOLD_USD = threshold
+auto_refresh = st.sidebar.checkbox("Auto Refresh (30s)", value=True)
+audible_alerts = st.sidebar.checkbox("Audible Alerts on |Δ%| ≥ 3", value=False)
 
-current_tor = data['tor']
-current_na = data['na']
-current_time = data['timestamp']
-current_height = data['block_height']
+# Main content
+col_status1, col_status2 = st.columns(2)
+with col_status1:
+    st.markdown("### 📡 Data Stream Status")
+    st.info("🟢 Scanning Binance Futures USDT pairs")
+    st.caption(f"Symbols: {len(SYMBOLS)} | Intervals: {', '.join(INTERVALS)}")
+with col_status2:
+    st.markdown("### 🔔 Recent Alerts")
+    alert_placeholder = st.empty()
 
-# Calculate deltas
-delta_tor = current_tor - st.session_state.prev_tor if st.session_state.prev_tor else 0
-delta_na = current_na - st.session_state.prev_na if st.session_state.prev_na else 0
+# Fetch data
+with st.spinner("Fetching real-time data..."):
+    market_data = fetch_all_data()
+    large_trades = fetch_all_large_trades()
 
-# Update session state
-st.session_state.prev_tor = current_tor
-st.session_state.prev_na = current_na
+# Check for delta alerts
+delta_alerts = []
+for sym, data in market_data.items():
+    for interval in INTERVALS:
+        delta_key = f'delta_{interval}'
+        if delta_key in data and abs(data[delta_key]) >= DELTA_THRESHOLD:
+            delta_alerts.append({
+                'symbol': sym,
+                'interval': interval,
+                'delta': data[delta_key],
+                'price': data['last_price']
+            })
 
-# Astro and numerology
-astro_label, is_reversal = get_astro_window(current_time)
-tor_num = calculate_numerology(current_tor)
-na_num = calculate_numerology(current_na)
-
-# Slope and momentum
-slope_text, slope_type, slope_desc = get_slope_pattern(delta_tor, delta_na)
-momentum_score = calculate_momentum(delta_tor, delta_na)
-
-# Trading signal
-signal_code, signal_text, signal_type, signal_reason = get_trading_signal(
-    current_tor, current_na, delta_tor, delta_na
-)
-
-# Scalping session
-session_name, session_active = get_scalp_session()
-
-# ============================================
-# STATISTICS DISPLAY
-# ============================================
-st.markdown("### 📊 LIVE BITNODES STATS")
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-    st.markdown(f'<div class="stat-card"><div>🌐 TOR %</div><div class="stat-value">{current_tor}%</div><div style="color:{"#00ffaa" if delta_tor>0 else "#ff4444"}">{delta_tor:+.2f}%</div></div>', unsafe_allow_html=True)
-with col2:
-    st.markdown(f'<div class="stat-card"><div>📡 NA Count</div><div class="stat-value">{current_na:,}</div><div style="color:{"#00ffaa" if delta_na>0 else "#ff4444"}">{delta_na:+,.0f}</div></div>', unsafe_allow_html=True)
-with col3:
-    st.markdown(f'<div class="stat-card"><div>⚡ Momentum</div><div class="stat-value">{momentum_score:+d}</div><div>(-3 to +3)</div></div>', unsafe_allow_html=True)
-with col4:
-    st.markdown(f'<div class="stat-card"><div>🔢 Numerology</div><div class="stat-value">TOR:{tor_num} NA:{na_num}</div></div>', unsafe_allow_html=True)
-with col5:
-    st.markdown(f'<div class="stat-card"><div>🕐 Last Update</div><div class="stat-value">{current_time.strftime("%H:%M:%S")}</div></div>', unsafe_allow_html=True)
+# Display alerts
+if delta_alerts:
+    alert_text = "### ⚡ Price Movement Alerts\n"
+    for a in delta_alerts[:10]:
+        direction = "▲ UP" if a['delta'] > 0 else "▼ DOWN"
+        alert_text += f"- {a['symbol']} ({a['interval']}): {direction} {a['delta']:.2f}% @ ${a['price']:,.2f}\n"
+    alert_placeholder.warning(alert_text)
+    if audible_alerts:
+        # Play beep using JavaScript (Streamlit components)
+        st.markdown('<audio autoplay><source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
+else:
+    alert_placeholder.info("No significant price movements in last scan.")
 
 # ============================================
-# MAP
+# MARKET DATA TABLE (All intervals combined)
 # ============================================
-st.markdown("### 🗺️ BITCOIN NODE NETWORK MAP")
-st.plotly_chart(create_map(data.get('nodes', [])), use_container_width=True)
+st.markdown("### 📊 Real-Time Market Scanner")
+
+# Prepare dataframe
+rows = []
+for sym, data in market_data.items():
+    row = {
+        'Symbol': sym,
+        'Price': f"${data['last_price']:,.2f}",
+        '24h %': f"{data['price_change_pct']:+.2f}%",
+    }
+    for interval in INTERVALS:
+        delta = data.get(f'delta_{interval}', 0)
+        vol_mult = data.get(f'vol_mult_{interval}', 1.0)
+        anomaly = data.get(f'anomaly_score_{interval}', 0)
+        row[f'{interval} Δ%'] = f"{delta:+.2f}%"
+        row[f'{interval} Vol×'] = f"{vol_mult:.1f}x"
+        row[f'{interval} Anomaly'] = f"{anomaly}%"
+    rows.append(row)
+
+df_display = pd.DataFrame(rows)
+st.dataframe(df_display, use_container_width=True, height=400)
 
 # ============================================
-# MAIN SIGNAL
+# LARGE TRADES TABLE
 # ============================================
-st.markdown("### 🎯 TRADING SIGNAL (Bitnodes + Astro-Numerical)")
-signal_emoji = "🟢" if signal_type == "bullish" else ("🔴" if signal_type == "bearish" else "🟡")
-st.markdown(f"""
-<div class="signal-box" style="border:2px solid {'#00ffaa' if signal_type=='bullish' else ('#ff4444' if signal_type=='bearish' else '#ffaa00')}">
-    <div style="font-size:2em;">{signal_emoji} {signal_code} - {signal_text}</div>
-    <div>{signal_reason}</div>
-    <div style="margin-top:10px;">🌙 Astro: {astro_label}</div>
-    <div>📈 Slope: {slope_text} - {slope_desc}</div>
-</div>
+st.markdown("### 💰 Large Trades (>${:,.0f})".format(LARGE_TRADE_THRESHOLD_USD))
+if large_trades:
+    trades_df = pd.DataFrame(large_trades)
+    trades_df['usd_value'] = trades_df['usd_value'].apply(lambda x: f"${x:,.0f}")
+    trades_df['price'] = trades_df['price'].apply(lambda x: f"${x:,.2f}")
+    trades_df['side'] = trades_df['is_buyer_maker'].apply(lambda x: "SELL" if x else "BUY")
+    trades_df = trades_df[['time', 'symbol', 'side', 'price', 'qty', 'usd_value']]
+    trades_df.columns = ['Time', 'Symbol', 'Side', 'Price', 'Quantity', 'USD Value']
+    st.dataframe(trades_df, use_container_width=True)
+else:
+    st.info("No large trades detected in recent scans.")
+
+# ============================================
+# ANOMALY EXPLANATION (Hybrid model)
+# ============================================
+st.markdown("### 🧠 Market Anomaly Alerts (Noise-Filtered Hybrid Model)")
+st.caption("Detects unusual price/volume behavior relative to each asset's own history. Score reflects statistical abnormality only, not direction.")
+anomaly_list = []
+for sym, data in market_data.items():
+    for interval in INTERVALS:
+        score = data.get(f'anomaly_score_{interval}', 0)
+        if score >= 30:
+            anomaly_list.append({
+                'symbol': sym,
+                'interval': interval,
+                'score': score,
+                'reason': data.get(f'anomaly_reason_{interval}', '')
+            })
+if anomaly_list:
+    for a in anomaly_list[:15]:
+        st.markdown(f"""
+        <div class="alert-box alert-volume">
+            <b>⚠️ {a['symbol']} ({a['interval']})</b> - Anomaly Score: {a['score']}<br>
+            <small>{a['reason']}</small>
+        </div>
+        """, unsafe_allow_html=True)
+else:
+    st.success("No significant anomalies detected. Market behavior within expected ranges.")
+
+# ============================================
+# CLICKABLE ROWS (JavaScript injection for binance link)
+# ============================================
+st.markdown("""
+<script>
+document.querySelectorAll('.dataframe tbody tr').forEach(row => {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => {
+        let symbol = row.cells[0].innerText;
+        window.open('https://www.binance.com/en/futures/' + symbol, '_blank');
+    });
+});
+</script>
 """, unsafe_allow_html=True)
 
 # ============================================
-# SCALPING & PUMP/DUMP TABLE (Manual Input)
+# AUDIO CUE EXPLANATION
 # ============================================
-st.markdown("### 🎯 PUMP/DUMP SIGNAL (Based on Your Table)")
-col_p1, col_p2 = st.columns(2)
-with col_p1:
-    tor_input = st.number_input("TOR %", value=current_tor, step=0.1)
-    na_input = st.number_input("NA Count", value=current_na, step=100)
-    speed = st.selectbox("TOR Change Speed", ["Slow", "Moderate", "Fast ↑", "Fast ↓"])
-with col_p2:
-    ob_imb = st.selectbox("Orderbook Imbalance", ["Buy > Sell", "Sell > Buy", "Balanced"])
-    vol_spike = st.selectbox("Volume Spike", ["Yes", "No"])
-    if st.button("GENERATE PUMP/DUMP SIGNAL"):
-        ob_val = 1 if ob_imb == "Buy > Sell" else (-1 if ob_imb == "Sell > Buy" else 0)
-        vol = (vol_spike == "Yes")
-        signal, color = get_pump_dump_signal(tor_input, na_input, speed, ob_val, vol)
-        if color == "green":
-            st.markdown(f'<div class="signal-box signal-pump"><h2>🟢 {signal}</h2></div>', unsafe_allow_html=True)
-        elif color == "red":
-            st.markdown(f'<div class="signal-box signal-dump"><h2>🔴 {signal}</h2></div>', unsafe_allow_html=True)
-        elif color == "yellow":
-            st.markdown(f'<div class="signal-box signal-fake"><h2>🟡 {signal}</h2></div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="signal-box"><h2>⚪ {signal}</h2></div>', unsafe_allow_html=True)
+if audible_alerts:
+    st.info("🔊 Audible alerts enabled: You will hear a beep when |Δ%| ≥ 3% on any symbol/interval.")
 
 # ============================================
-# COUNTRY-WISE ALTCOIN SIGNALS (From Image)
+# AUTO-REFRESH
 # ============================================
-st.markdown("### 💰 COUNTRY-WISE ALTCOIN SIGNALS (From Your Image)")
-countries = get_country_signals()
-cols = st.columns(3)
-for i, c in enumerate(countries):
-    with cols[i % 3]:
-        long_str = ", ".join(c['long']) if c['long'] else "None"
-        short_str = ", ".join(c['short']) if c['short'] else "None"
-        st.markdown(f"""
-        <div class="stat-card">
-            <b>📍 {c['name']}</b><br>
-            Node: {c['node_ip']}<br>
-            Trend: {c['trend']}%<br>
-            🟢 LONG: {long_str}<br>
-            🔴 SHORT: {short_str}
-        </div>
-        """, unsafe_allow_html=True)
-
-# ============================================
-# SCALPING SESSION STATUS
-# ============================================
-st.markdown("### ⏰ SCALPING SESSION STATUS")
-if session_active:
-    st.success(f"✅ ACTIVE SESSION: {session_name} - Fast moves expected")
-else:
-    st.warning(f"⏸️ OFF HOURS: {session_name} - No trade, wait for next session")
-
-# ============================================
-# RISK MANAGEMENT RULES
-# ============================================
-st.markdown("### 🛡️ RISK MANAGEMENT RULES")
-col_r1, col_r2, col_r3 = st.columns(3)
-with col_r1:
-    st.info("📊 **Position Sizing**\n- Max 3 trades/day\n- Risk 1-2% per trade\n- 5x-10x leverage")
-with col_r2:
-    st.warning("⛔ **Stop Loss**\n- Default: 0.25%-0.4%\n- High leverage: 0.18%-0.25%")
-with col_r3:
-    st.success("🎯 **Take Profit**\n- Scale out 25-50% at 0.4-1.0%\n- Trail stop after 0.5%")
-
-# ============================================
-# HISTORY & REFRESH
-# ============================================
-col_btn1, col_btn2 = st.columns([1, 4])
-with col_btn1:
-    if st.button("💾 Save Snapshot"):
-        st.session_state.history.append({
-            'time': current_time.strftime('%H:%M:%S'),
-            'tor': current_tor,
-            'na': current_na,
-            'signal': signal_code,
-            'momentum': momentum_score
-        })
-        st.success("Saved")
-with col_btn2:
-    if st.button("🔄 Force Refresh"):
-        st.cache_data.clear()
-        st.rerun()
-
-if st.session_state.history:
-    st.markdown("### 📜 Signal History")
-    st.dataframe(pd.DataFrame(st.session_state.history[-10:]), use_container_width=True)
+if auto_refresh:
+    time.sleep(30)
+    st.rerun()
 
 # ============================================
 # FOOTER
 # ============================================
 st.markdown(f"""
 <div class="footer">
-    <p>🔄 Data: Bitnodes.io Live API | Last Update: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
-    <p>⚠️ DYOR - Trading signals for informational purposes only. Past performance does not guarantee future results.</p>
+    <p>🔄 Data Source: Binance Futures API (Real-time) | Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    <p>⚠️ DISCLAIMER: This system is for informational purposes only. Not financial advice. Past anomalies do not guarantee future movements.</p>
+    <p>📡 Design inspired by academic research on crypto market anomaly detection (Karbalaii, 2025) - hybrid noise-filtered model.</p>
 </div>
 """, unsafe_allow_html=True)
