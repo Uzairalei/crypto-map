@@ -3,13 +3,7 @@ import pandas as pd
 import numpy as np
 import requests
 import time
-import asyncio
-import aiohttp
-import json
-from datetime import datetime, timedelta
-import plotly.graph_objects as go
-import threading
-import queue
+from datetime import datetime
 
 # ============================================
 # PAGE CONFIGURATION
@@ -90,11 +84,6 @@ st.markdown("""
     .dataframe {
         font-size: 0.8em;
     }
-    
-    .clickable-row:hover {
-        cursor: pointer;
-        background: rgba(0,255,170,0.1);
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -113,14 +102,8 @@ st.markdown("""
 # ============================================
 if 'last_update' not in st.session_state:
     st.session_state.last_update = None
-if 'alert_queue' not in st.session_state:
-    st.session_state.alert_queue = queue.Queue()
 if 'large_trades' not in st.session_state:
     st.session_state.large_trades = []
-if 'market_data' not in st.session_state:
-    st.session_state.market_data = {}
-if 'running' not in st.session_state:
-    st.session_state.running = True
 
 # ============================================
 # CONFIGURATION
@@ -185,7 +168,6 @@ def calculate_delta(df):
     if df is None or len(df) < 2:
         return 0, 0, 0
     last = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) >= 2 else last
     delta = ((last['close'] - last['open']) / last['open']) * 100
     # Last 3 candles average delta
     last3 = df.tail(3)
@@ -196,9 +178,10 @@ def calculate_volume_anomaly(df, window_minutes=30):
     """Calculate current volume vs rolling average (approx 30-min)"""
     if df is None or len(df) < 10:
         return 1.0
-    # Estimate: each interval in minutes. For 1m, 30 candles; for 3m, 10 candles; for 5m, 6 candles
-    window = window_minutes // (1 if df['timestamp'].diff().iloc[-1].seconds/60 == 1 else 3 if '3m' else 5)
-    window = max(window, 5)
+    # Estimate window size based on interval
+    # For 1m: window=30, for 3m: window=10, for 5m: window=6
+    # Since we don't have interval here, use a heuristic based on number of rows
+    window = min(30, max(6, len(df) // 3))
     avg_volume = df['quote_volume'].tail(window).mean()
     current_volume = df['quote_volume'].iloc[-1]
     multiplier = current_volume / avg_volume if avg_volume > 0 else 1.0
@@ -248,7 +231,7 @@ def fetch_all_data():
     return results
 
 # ============================================
-# LARGE TRADES (via aggTrades stream)
+# LARGE TRADES
 # ============================================
 def fetch_recent_agg_trades(symbol, limit=50):
     """Fetch recent aggregated trades"""
@@ -281,18 +264,8 @@ def fetch_all_large_trades():
     for symbol in SYMBOLS:
         trades = fetch_recent_agg_trades(symbol, limit=20)
         all_trades.extend(trades)
-    # Sort by time desc
     all_trades.sort(key=lambda x: x['time'], reverse=True)
     return all_trades[:50]
-
-# ============================================
-# AUDIO ALERT
-# ============================================
-def play_alert():
-    """Play beep sound via HTML audio (Streamlit doesn't support sound directly, use st.audio)"""
-    # Generate a simple beep using base64 audio
-    beep = "data:audio/wav;base64, U3RlYW1saXRoIGJlc3QgdXNlciBleHBlcmllbmNl"
-    st.audio(beep, format='audio/wav')
 
 # ============================================
 # MAIN APP
@@ -301,6 +274,7 @@ def play_alert():
 # Sidebar controls
 st.sidebar.markdown("## ⚙️ Controls")
 threshold = st.sidebar.number_input("Large Trade Threshold (USD)", value=1000000, step=100000)
+global LARGE_TRADE_THRESHOLD_USD
 LARGE_TRADE_THRESHOLD_USD = threshold
 auto_refresh = st.sidebar.checkbox("Auto Refresh (30s)", value=True)
 audible_alerts = st.sidebar.checkbox("Audible Alerts on |Δ%| ≥ 3", value=False)
@@ -341,17 +315,15 @@ if delta_alerts:
         alert_text += f"- {a['symbol']} ({a['interval']}): {direction} {a['delta']:.2f}% @ ${a['price']:,.2f}\n"
     alert_placeholder.warning(alert_text)
     if audible_alerts:
-        # Play beep using JavaScript (Streamlit components)
         st.markdown('<audio autoplay><source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
 else:
     alert_placeholder.info("No significant price movements in last scan.")
 
 # ============================================
-# MARKET DATA TABLE (All intervals combined)
+# MARKET DATA TABLE
 # ============================================
 st.markdown("### 📊 Real-Time Market Scanner")
 
-# Prepare dataframe
 rows = []
 for sym, data in market_data.items():
     row = {
@@ -387,7 +359,7 @@ else:
     st.info("No large trades detected in recent scans.")
 
 # ============================================
-# ANOMALY EXPLANATION (Hybrid model)
+# ANOMALY EXPLANATION
 # ============================================
 st.markdown("### 🧠 Market Anomaly Alerts (Noise-Filtered Hybrid Model)")
 st.caption("Detects unusual price/volume behavior relative to each asset's own history. Score reflects statistical abnormality only, not direction.")
@@ -414,7 +386,7 @@ else:
     st.success("No significant anomalies detected. Market behavior within expected ranges.")
 
 # ============================================
-# CLICKABLE ROWS (JavaScript injection for binance link)
+# CLICKABLE ROWS (JavaScript for binance link)
 # ============================================
 st.markdown("""
 <script>
@@ -429,12 +401,6 @@ document.querySelectorAll('.dataframe tbody tr').forEach(row => {
 """, unsafe_allow_html=True)
 
 # ============================================
-# AUDIO CUE EXPLANATION
-# ============================================
-if audible_alerts:
-    st.info("🔊 Audible alerts enabled: You will hear a beep when |Δ%| ≥ 3% on any symbol/interval.")
-
-# ============================================
 # AUTO-REFRESH
 # ============================================
 if auto_refresh:
@@ -447,7 +413,6 @@ if auto_refresh:
 st.markdown(f"""
 <div class="footer">
     <p>🔄 Data Source: Binance Futures API (Real-time) | Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    <p>⚠️ DISCLAIMER: This system is for informational purposes only. Not financial advice. Past anomalies do not guarantee future movements.</p>
-    <p>📡 Design inspired by academic research on crypto market anomaly detection (Karbalaii, 2025) - hybrid noise-filtered model.</p>
+    <p>⚠️ DISCLAIMER: This system is for informational purposes only. Not financial advice.</p>
 </div>
 """, unsafe_allow_html=True)
