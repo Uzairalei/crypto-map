@@ -116,9 +116,8 @@ SYMBOLS = [
 ]
 
 INTERVALS = ['1m', '3m', '5m']
-LARGE_TRADE_THRESHOLD_USD = 1000000  # 1M USD
 VOLUME_WINDOW_MINUTES = 30
-DELTA_THRESHOLD = 3.0  # % for audible alert
+DELTA_THRESHOLD = 3.0
 
 # ============================================
 # BINANCE API FUNCTIONS
@@ -169,18 +168,14 @@ def calculate_delta(df):
         return 0, 0, 0
     last = df.iloc[-1]
     delta = ((last['close'] - last['open']) / last['open']) * 100
-    # Last 3 candles average delta
     last3 = df.tail(3)
     avg_delta = ((last3['close'].iloc[-1] - last3['open'].iloc[0]) / last3['open'].iloc[0]) * 100 if len(last3) == 3 else delta
     return round(delta, 2), round(avg_delta, 2), last['close']
 
 def calculate_volume_anomaly(df, window_minutes=30):
-    """Calculate current volume vs rolling average (approx 30-min)"""
+    """Calculate current volume vs rolling average"""
     if df is None or len(df) < 10:
         return 1.0
-    # Estimate window size based on interval
-    # For 1m: window=30, for 3m: window=10, for 5m: window=6
-    # Since we don't have interval here, use a heuristic based on number of rows
     window = min(30, max(6, len(df) // 3))
     avg_volume = df['quote_volume'].tail(window).mean()
     current_volume = df['quote_volume'].iloc[-1]
@@ -231,10 +226,10 @@ def fetch_all_data():
     return results
 
 # ============================================
-# LARGE TRADES
+# LARGE TRADES (with dynamic threshold)
 # ============================================
-def fetch_recent_agg_trades(symbol, limit=50):
-    """Fetch recent aggregated trades"""
+def fetch_recent_agg_trades(symbol, threshold_usd, limit=50):
+    """Fetch recent aggregated trades and filter by USD value"""
     try:
         url = f"https://fapi.binance.com/fapi/v1/aggTrades?symbol={symbol}&limit={limit}"
         resp = requests.get(url, timeout=5)
@@ -245,24 +240,24 @@ def fetch_recent_agg_trades(symbol, limit=50):
                 price = float(t['p'])
                 qty = float(t['q'])
                 usd_value = price * qty
-                if usd_value >= LARGE_TRADE_THRESHOLD_USD:
+                if usd_value >= threshold_usd:
                     large_trades.append({
                         'symbol': symbol,
                         'price': price,
                         'qty': qty,
                         'usd_value': usd_value,
                         'time': datetime.fromtimestamp(t['T']/1000),
-                        'is_buyer_maker': t['m']  # False means buyer aggressive (BUY)
+                        'is_buyer_maker': t['m']
                     })
             return large_trades
     except:
         pass
     return []
 
-def fetch_all_large_trades():
+def fetch_all_large_trades(threshold_usd):
     all_trades = []
     for symbol in SYMBOLS:
-        trades = fetch_recent_agg_trades(symbol, limit=20)
+        trades = fetch_recent_agg_trades(symbol, threshold_usd, limit=20)
         all_trades.extend(trades)
     all_trades.sort(key=lambda x: x['time'], reverse=True)
     return all_trades[:50]
@@ -274,8 +269,6 @@ def fetch_all_large_trades():
 # Sidebar controls
 st.sidebar.markdown("## ⚙️ Controls")
 threshold = st.sidebar.number_input("Large Trade Threshold (USD)", value=1000000, step=100000)
-global LARGE_TRADE_THRESHOLD_USD
-LARGE_TRADE_THRESHOLD_USD = threshold
 auto_refresh = st.sidebar.checkbox("Auto Refresh (30s)", value=True)
 audible_alerts = st.sidebar.checkbox("Audible Alerts on |Δ%| ≥ 3", value=False)
 
@@ -292,7 +285,7 @@ with col_status2:
 # Fetch data
 with st.spinner("Fetching real-time data..."):
     market_data = fetch_all_data()
-    large_trades = fetch_all_large_trades()
+    large_trades = fetch_all_large_trades(threshold)
 
 # Check for delta alerts
 delta_alerts = []
@@ -346,7 +339,7 @@ st.dataframe(df_display, use_container_width=True, height=400)
 # ============================================
 # LARGE TRADES TABLE
 # ============================================
-st.markdown("### 💰 Large Trades (>${:,.0f})".format(LARGE_TRADE_THRESHOLD_USD))
+st.markdown(f"### 💰 Large Trades (>${threshold:,.0f})")
 if large_trades:
     trades_df = pd.DataFrame(large_trades)
     trades_df['usd_value'] = trades_df['usd_value'].apply(lambda x: f"${x:,.0f}")
