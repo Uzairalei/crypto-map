@@ -9,7 +9,7 @@ from datetime import datetime
 # PAGE CONFIGURATION
 # ============================================
 st.set_page_config(
-    page_title="UZAIR ALI DARK CRYPTO - Real-Time Market Scanner",
+    page_title="UZAIR ALI DARK CRYPTO - Elxes Real-Time Scanner",
     page_icon="🌑",
     layout="wide"
 )
@@ -28,7 +28,6 @@ st.markdown("""
     .main-header {
         text-align: center;
         padding: 20px;
-        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
         border-bottom: 2px solid #00ffaa;
         margin-bottom: 20px;
     }
@@ -38,31 +37,23 @@ st.markdown("""
         color: #00ffaa;
         font-size: 2.5em;
         text-shadow: 0 0 15px #00ffaa;
-        letter-spacing: 3px;
     }
     
-    .alert-box {
+    .alert-card {
         background: #0f1322;
         border-radius: 10px;
-        padding: 15px;
-        margin: 10px 0;
+        padding: 12px;
+        margin: 8px 0;
         border-left: 4px solid;
+        transition: 0.2s;
     }
-    
-    .alert-up {
-        border-left-color: #00ffaa;
-        background: rgba(0,255,170,0.05);
+    .alert-card:hover {
+        transform: translateX(5px);
+        background: #1a1f3a;
     }
-    
-    .alert-down {
-        border-left-color: #ff4444;
-        background: rgba(255,68,68,0.05);
-    }
-    
-    .alert-volume {
-        border-left-color: #ffaa00;
-        background: rgba(255,170,0,0.05);
-    }
+    .up { border-left-color: #00ffaa; }
+    .down { border-left-color: #ff4444; }
+    .vol { border-left-color: #ffaa00; }
     
     .stat-card {
         background: #0f1322;
@@ -71,7 +62,6 @@ st.markdown("""
         padding: 15px;
         text-align: center;
     }
-    
     .footer {
         text-align: center;
         padding: 20px;
@@ -80,10 +70,20 @@ st.markdown("""
         border-top: 1px solid #2a2f4a;
         margin-top: 30px;
     }
-    
     .dataframe {
         font-size: 0.8em;
     }
+    .tag {
+        display: inline-block;
+        background: #2a2f4a;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.7em;
+        margin-right: 5px;
+    }
+    .tag-up { background: #00ffaa20; color: #00ffaa; }
+    .tag-down { background: #ff444420; color: #ff4444; }
+    .tag-vol { background: #ffaa0020; color: #ffaa00; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,41 +93,46 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>🌑 UZAIR ALI DARK CRYPTO</h1>
-    <p>Real-Time Market Scanner | Delta & Volume Analysis | Anomaly Detection | Large Trades</p>
+    <p>Elxes Real-Time Scanner | 1m · 3m · 5m | Delta · Volume · Wick Anomalies | Live Binance Futures</p>
 </div>
 """, unsafe_allow_html=True)
-
-# ============================================
-# SESSION STATE
-# ============================================
-if 'last_update' not in st.session_state:
-    st.session_state.last_update = None
-if 'large_trades' not in st.session_state:
-    st.session_state.large_trades = []
 
 # ============================================
 # CONFIGURATION
 # ============================================
 SYMBOLS = [
-    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
     'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT',
     'NEARUSDT', 'ATOMUSDT', 'LTCUSDT', 'UNIUSDT', 'ARBUSDT',
     'OPUSDT', 'APTUSDT', 'SUIUSDT', 'INJUSDT', 'TIAUSDT'
 ]
 
 INTERVALS = ['1m', '3m', '5m']
-VOLUME_WINDOW_MINUTES = 30
-DELTA_THRESHOLD = 3.0
+
+# Default thresholds (can be adjusted in sidebar)
+DEFAULT_THRESHOLDS = {
+    '1m': {'delta': 2.0, 'volume_mult': 2.0, 'wick_ratio': 1.5},
+    '3m': {'delta': 2.5, 'volume_mult': 2.0, 'wick_ratio': 1.5},
+    '5m': {'delta': 3.0, 'volume_mult': 2.0, 'wick_ratio': 1.5}
+}
+
+# ============================================
+# SESSION STATE
+# ============================================
+if 'last_data' not in st.session_state:
+    st.session_state.last_data = {}
+if 'large_trades' not in st.session_state:
+    st.session_state.large_trades = []
 
 # ============================================
 # BINANCE API FUNCTIONS
 # ============================================
-def fetch_klines(symbol, interval, limit=100):
-    """Fetch kline data from Binance Futures"""
+def fetch_klines(symbol, interval, limit=50):
+    """Fetch latest klines from Binance Futures"""
     try:
-        url = f"https://fapi.binance.com/fapi/v1/klines"
+        url = "https://fapi.binance.com/fapi/v1/klines"
         params = {'symbol': symbol, 'interval': interval, 'limit': limit}
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(url, params=params, timeout=5)
         if resp.status_code == 200:
             data = resp.json()
             df = pd.DataFrame(data, columns=[
@@ -139,11 +144,10 @@ def fetch_klines(symbol, interval, limit=100):
             df[['open','high','low','close','quote_volume']] = df[['open','high','low','close','quote_volume']].astype(float)
             return df
     except:
-        return None
+        pass
     return None
 
 def fetch_24hr_ticker(symbol):
-    """Fetch 24hr ticker for price"""
     try:
         url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={symbol}"
         resp = requests.get(url, timeout=5)
@@ -151,19 +155,42 @@ def fetch_24hr_ticker(symbol):
             data = resp.json()
             return {
                 'last_price': float(data['lastPrice']),
-                'price_change_pct': float(data['priceChangePercent']),
-                'volume': float(data['volume']),
-                'quote_volume': float(data['quoteVolume'])
+                'price_change_pct': float(data['priceChangePercent'])
             }
     except:
         pass
     return None
 
+def fetch_recent_agg_trades(symbol, threshold_usd, limit=30):
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/aggTrades?symbol={symbol}&limit={limit}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            trades = resp.json()
+            large = []
+            for t in trades:
+                price = float(t['p'])
+                qty = float(t['q'])
+                usd = price * qty
+                if usd >= threshold_usd:
+                    large.append({
+                        'symbol': symbol,
+                        'price': price,
+                        'qty': qty,
+                        'usd_value': usd,
+                        'time': datetime.fromtimestamp(t['T']/1000),
+                        'is_buyer_maker': t['m']
+                    })
+            return large
+    except:
+        pass
+    return []
+
 # ============================================
 # ANALYSIS FUNCTIONS
 # ============================================
 def calculate_delta(df):
-    """Calculate % change between open and close of last candle"""
+    """Return (delta%, last3_avg_delta%, close_price)"""
     if df is None or len(df) < 2:
         return 0, 0, 0
     last = df.iloc[-1]
@@ -172,174 +199,190 @@ def calculate_delta(df):
     avg_delta = ((last3['close'].iloc[-1] - last3['open'].iloc[0]) / last3['open'].iloc[0]) * 100 if len(last3) == 3 else delta
     return round(delta, 2), round(avg_delta, 2), last['close']
 
-def calculate_volume_anomaly(df, window_minutes=30):
-    """Calculate current volume vs rolling average"""
+def calculate_volume_anomaly(df, window=30):
+    """Volume multiplier vs rolling average (approx 30 min)"""
     if df is None or len(df) < 10:
         return 1.0
-    window = min(30, max(6, len(df) // 3))
-    avg_volume = df['quote_volume'].tail(window).mean()
-    current_volume = df['quote_volume'].iloc[-1]
-    multiplier = current_volume / avg_volume if avg_volume > 0 else 1.0
-    return round(multiplier, 2)
+    window = min(window, len(df)-1)
+    avg_vol = df['quote_volume'].tail(window).mean()
+    curr_vol = df['quote_volume'].iloc[-1]
+    mult = curr_vol / avg_vol if avg_vol > 0 else 1.0
+    return round(mult, 2)
 
-def detect_anomaly(delta, volume_multiplier, price_change_pct):
-    """Hybrid anomaly detection - returns score and description"""
+def calculate_wick_ratio(df):
+    """Wick to body ratio for last candle"""
+    if df is None or len(df) < 1:
+        return 0
+    last = df.iloc[-1]
+    body = abs(last['close'] - last['open'])
+    if body == 0:
+        return 0
+    upper_wick = last['high'] - max(last['close'], last['open'])
+    lower_wick = min(last['close'], last['open']) - last['low']
+    max_wick = max(upper_wick, lower_wick)
+    return round(max_wick / body, 2)
+
+def detect_anomaly_score(delta, vol_mult, wick_ratio, interval):
+    """Hybrid score (0-100) based on delta, volume, wick"""
     score = 0
-    reasons = []
-    if abs(delta) > 2.5:
-        score += abs(delta) / 2
-        reasons.append(f"Price delta {delta:.1f}%")
-    if volume_multiplier > 2.5:
-        score += volume_multiplier / 1.5
-        reasons.append(f"Volume spike {volume_multiplier}x")
-    if abs(price_change_pct) > 5:
-        score += abs(price_change_pct) / 3
-        reasons.append(f"24h change {price_change_pct:.1f}%")
-    score = min(100, score * 10)
-    return round(score), ", ".join(reasons) if reasons else "Normal"
+    # Delta contribution
+    delta_th = DEFAULT_THRESHOLDS[interval]['delta']
+    if abs(delta) >= delta_th:
+        score += min(40, abs(delta) * 10)
+    # Volume contribution
+    vol_th = DEFAULT_THRESHOLDS[interval]['volume_mult']
+    if vol_mult >= vol_th:
+        score += min(30, vol_mult * 8)
+    # Wick contribution
+    wick_th = DEFAULT_THRESHOLDS[interval]['wick_ratio']
+    if wick_ratio >= wick_th:
+        score += min(30, wick_ratio * 12)
+    return min(100, int(score))
 
 # ============================================
-# FETCH ALL DATA
+# MAIN SCANNER
 # ============================================
-@st.cache_data(ttl=30)
-def fetch_all_data():
-    """Fetch data for all symbols and intervals"""
-    results = {}
+@st.cache_data(ttl=20)
+def scan_all():
+    results = []
     for symbol in SYMBOLS:
         ticker = fetch_24hr_ticker(symbol)
         if not ticker:
             continue
-        symbol_data = {'symbol': symbol, 'last_price': ticker['last_price'], 'price_change_pct': ticker['price_change_pct']}
         for interval in INTERVALS:
-            klines = fetch_klines(symbol, interval, limit=100)
-            if klines is not None:
-                delta, avg_delta, close = calculate_delta(klines)
-                vol_mult = calculate_volume_anomaly(klines, VOLUME_WINDOW_MINUTES)
-                anomaly_score, anomaly_reason = detect_anomaly(delta, vol_mult, ticker['price_change_pct'])
-                symbol_data[f'delta_{interval}'] = delta
-                symbol_data[f'avg_delta_{interval}'] = avg_delta
-                symbol_data[f'vol_mult_{interval}'] = vol_mult
-                symbol_data[f'anomaly_score_{interval}'] = anomaly_score
-                symbol_data[f'anomaly_reason_{interval}'] = anomaly_reason
-                symbol_data[f'close_{interval}'] = close
-        results[symbol] = symbol_data
+            df = fetch_klines(symbol, interval, limit=50)
+            if df is None:
+                continue
+            delta, avg_delta, close = calculate_delta(df)
+            vol_mult = calculate_volume_anomaly(df)
+            wick_ratio = calculate_wick_ratio(df)
+            anomaly_score = detect_anomaly_score(delta, vol_mult, wick_ratio, interval)
+            
+            # Determine tags
+            tags = []
+            if abs(delta) >= DEFAULT_THRESHOLDS[interval]['delta']:
+                tags.append(("UP" if delta > 0 else "DOWN", delta > 0))
+            if vol_mult >= DEFAULT_THRESHOLDS[interval]['volume_mult']:
+                tags.append(("VOL", None))
+            
+            results.append({
+                'symbol': symbol,
+                'interval': interval,
+                'price': close,
+                'delta': delta,
+                'avg_delta': avg_delta,
+                'vol_mult': vol_mult,
+                'wick_ratio': wick_ratio,
+                'anomaly_score': anomaly_score,
+                'tags': tags,
+                'timestamp': datetime.now()
+            })
+    # Sort by anomaly score descending
+    results.sort(key=lambda x: x['anomaly_score'], reverse=True)
     return results
 
 # ============================================
-# LARGE TRADES (with dynamic threshold)
+# SIDEBAR CONTROLS
 # ============================================
-def fetch_recent_agg_trades(symbol, threshold_usd, limit=50):
-    """Fetch recent aggregated trades and filter by USD value"""
-    try:
-        url = f"https://fapi.binance.com/fapi/v1/aggTrades?symbol={symbol}&limit={limit}"
-        resp = requests.get(url, timeout=5)
-        if resp.status_code == 200:
-            trades = resp.json()
-            large_trades = []
-            for t in trades:
-                price = float(t['p'])
-                qty = float(t['q'])
-                usd_value = price * qty
-                if usd_value >= threshold_usd:
-                    large_trades.append({
-                        'symbol': symbol,
-                        'price': price,
-                        'qty': qty,
-                        'usd_value': usd_value,
-                        'time': datetime.fromtimestamp(t['T']/1000),
-                        'is_buyer_maker': t['m']
-                    })
-            return large_trades
-    except:
-        pass
-    return []
-
-def fetch_all_large_trades(threshold_usd):
-    all_trades = []
-    for symbol in SYMBOLS:
-        trades = fetch_recent_agg_trades(symbol, threshold_usd, limit=20)
-        all_trades.extend(trades)
-    all_trades.sort(key=lambda x: x['time'], reverse=True)
-    return all_trades[:50]
-
-# ============================================
-# MAIN APP
-# ============================================
-
-# Sidebar controls
 st.sidebar.markdown("## ⚙️ Controls")
-threshold = st.sidebar.number_input("Large Trade Threshold (USD)", value=1000000, step=100000)
-auto_refresh = st.sidebar.checkbox("Auto Refresh (30s)", value=True)
-audible_alerts = st.sidebar.checkbox("Audible Alerts on |Δ%| ≥ 3", value=False)
+threshold_usd = st.sidebar.number_input("Large Trade Threshold (USD)", value=1000000, step=100000)
+auto_refresh = st.sidebar.checkbox("Auto Refresh (20s)", value=True)
+audible = st.sidebar.checkbox("Audible Alerts (|Δ%| ≥ 3)", value=False)
 
-# Main content
-col_status1, col_status2 = st.columns(2)
-with col_status1:
-    st.markdown("### 📡 Data Stream Status")
-    st.info("🟢 Scanning Binance Futures USDT pairs")
-    st.caption(f"Symbols: {len(SYMBOLS)} | Intervals: {', '.join(INTERVALS)}")
-with col_status2:
-    st.markdown("### 🔔 Recent Alerts")
-    alert_placeholder = st.empty()
+st.sidebar.markdown("## 📊 Thresholds (per interval)")
+new_thresholds = {}
+for iv in INTERVALS:
+    with st.sidebar.expander(f"{iv} thresholds"):
+        d = st.number_input(f"Delta % ({iv})", value=DEFAULT_THRESHOLDS[iv]['delta'], step=0.5, key=f"delta_{iv}")
+        v = st.number_input(f"Volume multiplier ({iv})", value=DEFAULT_THRESHOLDS[iv]['volume_mult'], step=0.5, key=f"vol_{iv}")
+        w = st.number_input(f"Wick ratio ({iv})", value=DEFAULT_THRESHOLDS[iv]['wick_ratio'], step=0.2, key=f"wick_{iv}")
+        new_thresholds[iv] = {'delta': d, 'volume_mult': v, 'wick_ratio': w}
+# Update thresholds globally
+for iv in INTERVALS:
+    DEFAULT_THRESHOLDS[iv] = new_thresholds[iv]
 
-# Fetch data
-with st.spinner("Fetching real-time data..."):
-    market_data = fetch_all_data()
-    large_trades = fetch_all_large_trades(threshold)
+# ============================================
+# FETCH DATA
+# ============================================
+with st.spinner("Scanning Binance Futures USDT pairs..."):
+    scan_results = scan_all()
+    large_trades = []
+    if threshold_usd:
+        for sym in SYMBOLS[:10]:  # limit to avoid rate limits
+            large_trades.extend(fetch_recent_agg_trades(sym, threshold_usd, limit=20))
+        large_trades.sort(key=lambda x: x['time'], reverse=True)
+        large_trades = large_trades[:30]
 
-# Check for delta alerts
-delta_alerts = []
-for sym, data in market_data.items():
-    for interval in INTERVALS:
-        delta_key = f'delta_{interval}'
-        if delta_key in data and abs(data[delta_key]) >= DELTA_THRESHOLD:
-            delta_alerts.append({
-                'symbol': sym,
-                'interval': interval,
-                'delta': data[delta_key],
-                'price': data['last_price']
-            })
+# ============================================
+# DISPLAY ALERTS (Top anomalies)
+# ============================================
+st.markdown("### 🚨 Real-Time Anomaly Alerts (Highest Score First)")
 
-# Display alerts
-if delta_alerts:
-    alert_text = "### ⚡ Price Movement Alerts\n"
-    for a in delta_alerts[:10]:
-        direction = "▲ UP" if a['delta'] > 0 else "▼ DOWN"
-        alert_text += f"- {a['symbol']} ({a['interval']}): {direction} {a['delta']:.2f}% @ ${a['price']:,.2f}\n"
-    alert_placeholder.warning(alert_text)
-    if audible_alerts:
-        st.markdown('<audio autoplay><source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
+# Filter only events with anomaly_score >= 20
+important = [r for r in scan_results if r['anomaly_score'] >= 20]
+if not important:
+    st.info("No significant anomalies in current scan. Adjust thresholds or wait for volatility.")
+
+for event in important[:25]:
+    # Determine card class
+    direction = ""
+    if any(t[0] == "UP" for t in event['tags']):
+        card_class = "up"
+        direction = "UP"
+    elif any(t[0] == "DOWN" for t in event['tags']):
+        card_class = "down"
+        direction = "DOWN"
+    else:
+        card_class = "vol"
+    
+    # Build tag HTML
+    tag_html = ""
+    for tag, is_up in event['tags']:
+        if tag == "VOL":
+            tag_html += f'<span class="tag tag-vol">VOL</span> '
+        elif tag == "UP":
+            tag_html += f'<span class="tag tag-up">UP</span> '
+        elif tag == "DOWN":
+            tag_html += f'<span class="tag tag-down">DOWN</span> '
+    
+    st.markdown(f"""
+    <div class="alert-card {card_class}" onclick="window.open('https://www.binance.com/en/futures/{event['symbol']}', '_blank')">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <b>{event['symbol']}</b> <span class="tag">{event['interval']}</span>
+                {tag_html}
+            </div>
+            <div style="font-weight: bold;">Score: {event['anomaly_score']}</div>
+        </div>
+        <div style="margin-top: 5px; font-size: 0.9em;">
+            Δ%: <b style="color:{'#00ffaa' if event['delta']>0 else '#ff4444'}">{event['delta']:+.2f}%</b> 
+            | Last3 Δ: {event['avg_delta']:+.2f}%
+            | Vol×: {event['vol_mult']:.1f}x
+            | Wick ratio: {event['wick_ratio']:.1f}
+            | Price: ${event['price']:,.2f}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ============================================
+# DETAILED TABLE (All events)
+# ============================================
+st.markdown("### 📋 Full Scanner Table (All Pairs & Intervals)")
+df_display = pd.DataFrame(scan_results)
+if not df_display.empty:
+    df_show = df_display[['symbol','interval','price','delta','avg_delta','vol_mult','wick_ratio','anomaly_score']].copy()
+    df_show['delta'] = df_show['delta'].apply(lambda x: f"{x:+.2f}%")
+    df_show['avg_delta'] = df_show['avg_delta'].apply(lambda x: f"{x:+.2f}%")
+    df_show['price'] = df_show['price'].apply(lambda x: f"${x:,.2f}")
+    df_show.columns = ['Symbol','Int','Price','Δ%','Last3 Δ%','Vol×','Wick Ratio','Anomaly Score']
+    st.dataframe(df_show, use_container_width=True, height=400)
 else:
-    alert_placeholder.info("No significant price movements in last scan.")
-
-# ============================================
-# MARKET DATA TABLE
-# ============================================
-st.markdown("### 📊 Real-Time Market Scanner")
-
-rows = []
-for sym, data in market_data.items():
-    row = {
-        'Symbol': sym,
-        'Price': f"${data['last_price']:,.2f}",
-        '24h %': f"{data['price_change_pct']:+.2f}%",
-    }
-    for interval in INTERVALS:
-        delta = data.get(f'delta_{interval}', 0)
-        vol_mult = data.get(f'vol_mult_{interval}', 1.0)
-        anomaly = data.get(f'anomaly_score_{interval}', 0)
-        row[f'{interval} Δ%'] = f"{delta:+.2f}%"
-        row[f'{interval} Vol×'] = f"{vol_mult:.1f}x"
-        row[f'{interval} Anomaly'] = f"{anomaly}%"
-    rows.append(row)
-
-df_display = pd.DataFrame(rows)
-st.dataframe(df_display, use_container_width=True, height=400)
+    st.warning("No data fetched. Check network or API limits.")
 
 # ============================================
 # LARGE TRADES TABLE
 # ============================================
-st.markdown(f"### 💰 Large Trades (>${threshold:,.0f})")
+st.markdown(f"### 💰 Large Trades ( > ${threshold_usd:,.0f} )")
 if large_trades:
     trades_df = pd.DataFrame(large_trades)
     trades_df['usd_value'] = trades_df['usd_value'].apply(lambda x: f"${x:,.0f}")
@@ -352,34 +395,30 @@ else:
     st.info("No large trades detected in recent scans.")
 
 # ============================================
-# ANOMALY EXPLANATION
+# AUDIBLE ALERTS (if any high delta)
 # ============================================
-st.markdown("### 🧠 Market Anomaly Alerts (Noise-Filtered Hybrid Model)")
-st.caption("Detects unusual price/volume behavior relative to each asset's own history. Score reflects statistical abnormality only, not direction.")
-anomaly_list = []
-for sym, data in market_data.items():
-    for interval in INTERVALS:
-        score = data.get(f'anomaly_score_{interval}', 0)
-        if score >= 30:
-            anomaly_list.append({
-                'symbol': sym,
-                'interval': interval,
-                'score': score,
-                'reason': data.get(f'anomaly_reason_{interval}', '')
-            })
-if anomaly_list:
-    for a in anomaly_list[:15]:
-        st.markdown(f"""
-        <div class="alert-box alert-volume">
-            <b>⚠️ {a['symbol']} ({a['interval']})</b> - Anomaly Score: {a['score']}<br>
-            <small>{a['reason']}</small>
-        </div>
-        """, unsafe_allow_html=True)
-else:
-    st.success("No significant anomalies detected. Market behavior within expected ranges.")
+high_delta = any(abs(r['delta']) >= 3.0 for r in scan_results)
+if audible and high_delta:
+    st.markdown('<audio autoplay><source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
+    st.toast("🔊 High delta detected! Check alerts.", icon="⚠️")
 
 # ============================================
-# CLICKABLE ROWS (JavaScript for binance link)
+# AUTO-REFRESH & FOOTER
+# ============================================
+if auto_refresh:
+    time.sleep(20)
+    st.rerun()
+
+st.markdown(f"""
+<div class="footer">
+    <p>🔄 Data Source: Binance Futures API (real-time) | Last Scan: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    <p>⚠️ Disclaimer: For informational purposes only. Not financial advice. Always DYOR.</p>
+    <p>📡 Click any alert card to open symbol on Binance Futures.</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================
+# JAVASCRIPT FOR CLICKABLE ROWS (Full table)
 # ============================================
 st.markdown("""
 <script>
@@ -391,21 +430,4 @@ document.querySelectorAll('.dataframe tbody tr').forEach(row => {
     });
 });
 </script>
-""", unsafe_allow_html=True)
-
-# ============================================
-# AUTO-REFRESH
-# ============================================
-if auto_refresh:
-    time.sleep(30)
-    st.rerun()
-
-# ============================================
-# FOOTER
-# ============================================
-st.markdown(f"""
-<div class="footer">
-    <p>🔄 Data Source: Binance Futures API (Real-time) | Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    <p>⚠️ DISCLAIMER: This system is for informational purposes only. Not financial advice.</p>
-</div>
 """, unsafe_allow_html=True)
