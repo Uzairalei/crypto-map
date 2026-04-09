@@ -4,136 +4,154 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import time
+import json
 
 # ============================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================
 st.set_page_config(
-    page_title="TRADENODES - Bitnodes Live Map",
+    page_title="TRADENODES - Live Bitcoin Node Map",
     page_icon="🌐",
     layout="wide"
 )
 
 # ============================================
-# CUSTOM CSS - EXACT IMAGE STYLE
+# CUSTOM CSS - BITNODES STYLE
 # ============================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
     .stApp {
-        background: #0a0e27;
+        background-color: #0b0e1a;
     }
     
-    /* Main Header - Exactly like image */
     .main-header {
         text-align: center;
-        padding: 20px;
-        border-bottom: 2px solid #00ffaa;
-        margin-bottom: 20px;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #0a0e1a 0%, #151e2c 100%);
+        border-bottom: 1px solid #2a3a4a;
+        margin-bottom: 2rem;
     }
     
     .main-header h1 {
-        font-family: 'Orbitron', monospace;
-        color: #00ffaa;
-        font-size: 2.8em;
-        text-shadow: 0 0 10px #00ffaa;
-        letter-spacing: 4px;
+        font-family: 'Inter', sans-serif;
+        color: #00e5a0;
+        font-size: 2.8rem;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        text-shadow: 0 0 8px rgba(0,229,160,0.3);
+        margin: 0;
     }
     
-    .subtitle {
-        color: #88ffcc;
-        font-family: 'Share Tech Mono', monospace;
-        font-size: 0.9em;
+    .main-header p {
+        color: #8ba3b0;
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
     }
     
-    /* Node Card Style - Like image dots with info */
-    .node-card {
-        background: #0f1322;
-        border: 1px solid #2a2f4a;
+    .stat-card {
+        background: #111827;
+        border-radius: 12px;
+        padding: 1rem;
+        text-align: center;
+        border: 1px solid #1f2a3a;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    .stat-label {
+        color: #8ba3b0;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .stat-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #00e5a0;
+        line-height: 1.2;
+    }
+    
+    .node-list-container {
+        background: #111827;
+        border-radius: 16px;
+        border: 1px solid #1f2a3a;
+        padding: 1rem;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    .node-item {
+        background: #0f1722;
+        border-left: 3px solid #00e5a0;
+        padding: 0.8rem;
+        margin-bottom: 0.8rem;
         border-radius: 8px;
-        padding: 12px;
-        margin: 8px 0;
-        transition: all 0.3s;
+        transition: all 0.2s;
     }
     
-    .node-card:hover {
-        border-color: #00ffaa;
+    .node-item:hover {
         transform: translateX(5px);
+        background: #131c2a;
     }
     
     .node-ip {
         font-family: monospace;
-        color: #00ffaa;
-        font-weight: bold;
+        font-weight: 600;
+        color: #00e5a0;
     }
     
     .node-location {
-        font-size: 12px;
-        color: #88ffcc;
+        font-size: 0.8rem;
+        color: #8ba3b0;
     }
     
     .node-trend {
-        font-size: 13px;
-        margin: 5px 0;
-    }
-    
-    .trend-up {
-        color: #00ffaa;
-    }
-    
-    .trend-down {
-        color: #ff4444;
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-top: 4px;
     }
     
     .signal-long {
-        color: #00ffaa;
-        font-weight: bold;
+        color: #00e5a0;
+        font-weight: 600;
     }
     
     .signal-short {
-        color: #ff4444;
-        font-weight: bold;
+        color: #ff4d4d;
+        font-weight: 600;
     }
     
-    .coin-pair {
-        font-size: 11px;
-        color: #ffaa00;
-        margin-top: 5px;
+    .signal-neutral {
+        color: #ffaa44;
+        font-weight: 600;
     }
     
-    .stat-box {
-        background: #0f1322;
-        border: 1px solid #2a2f4a;
-        border-radius: 8px;
-        padding: 12px;
-        text-align: center;
-    }
-    
-    .stat-value {
-        font-size: 1.6em;
-        font-weight: bold;
-        color: #00ffaa;
+    .coin-pairs {
+        font-size: 0.75rem;
+        color: #ffaa44;
+        margin-top: 4px;
     }
     
     .footer {
         text-align: center;
-        padding: 15px;
+        padding: 1.5rem;
         color: #5a6e8a;
-        font-size: 0.7em;
-        border-top: 1px solid #2a2f4a;
-        margin-top: 20px;
+        font-size: 0.7rem;
+        border-top: 1px solid #1f2a3a;
+        margin-top: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================
-# HEADER - EXACT IMAGE TEXT
+# HEADER
 # ============================================
 st.markdown("""
 <div class="main-header">
     <h1>🌐 TRADENODES</h1>
-    <p class="subtitle">Bitcoin Network Node Map | Live Derivative Trading Data</p>
+    <p>Real‑time Bitcoin Network Map | Node‑based Trading Signals</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -146,121 +164,146 @@ if 'prev_na' not in st.session_state:
     st.session_state.prev_na = None
 
 # ============================================
-# BITNODES REAL API
+# BITNODES API (REAL DATA)
 # ============================================
 @st.cache_data(ttl=60)
-def fetch_bitnodes():
+def fetch_bitnodes_data():
+    """Fetch real node data from Bitnodes API"""
     try:
         url = "https://bitnodes.io/api/v1/snapshots/latest/"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            total = data.get('total_nodes', 0)
-            tor = 0
-            for addr in data.get('nodes', {}).keys():
-                if '.onion' in addr.lower():
-                    tor += 1
-            tor_percent = (tor / total * 100) if total > 0 else 0
-            return {'tor': round(tor_percent, 2), 'na': total, 'success': True}
-    except:
+        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
+        r = requests.get(url, headers=headers, timeout=12)
+        if r.status_code == 200:
+            data = r.json()
+            total_nodes = data.get('total_nodes', 0)
+            tor_count = sum(1 for addr in data.get('nodes', {}) if '.onion' in addr.lower())
+            tor_percent = (tor_count / total_nodes * 100) if total_nodes else 0
+            
+            # Extract geolocated nodes for map
+            node_list = []
+            for addr, info in list(data.get('nodes', {}).items())[:80]:
+                if len(info) >= 10:
+                    lat = info[8] if isinstance(info[8], (int, float)) else None
+                    lon = info[9] if isinstance(info[9], (int, float)) else None
+                    if lat and lon and -90 <= lat <= 90 and -180 <= lon <= 180:
+                        node_list.append({
+                            'ip': addr,
+                            'lat': lat,
+                            'lon': lon,
+                            'city': info[6] if len(info)>6 else 'Unknown',
+                            'country': info[7] if len(info)>7 else 'Unknown'
+                        })
+            return {
+                'tor': round(tor_percent, 2),
+                'na': total_nodes,
+                'nodes': node_list,
+                'success': True,
+                'timestamp': datetime.now()
+            }
+    except Exception as e:
         pass
     # Fallback realistic data
     import random
-    return {'tor': round(65.2 + (random.random() - 0.5) * 1.5, 2), 'na': int(23800 + (random.random() - 0.5) * 300), 'success': False}
+    return {
+        'tor': round(65.2 + (random.random()-0.5)*1.5, 2),
+        'na': int(23800 + (random.random()-0.5)*300),
+        'nodes': [],
+        'success': False,
+        'timestamp': datetime.now()
+    }
 
 # ============================================
-# NODE DATA - EXACTLY AS PER IMAGE
+# NODE DATA WITH COIN SIGNALS (FROM YOUR IMAGE)
 # ============================================
-def get_nodes_with_coins(tor_value):
-    """Create nodes exactly like the image shows"""
-    # Using the image's exact data plus some extras
-    nodes = [
-        {
-            "ip": "217.15.178.11:8333",
-            "location": "Almaty/Kazakhstan",
-            "trend": round(tor_value + 0.5, 1),
-            "signal": "Long",
-            "coin_pairs": ["SOL/USDT", "OKB/USDT"],
-            "lat": 43.25, "lon": 76.95,
-            "coordinate": "H"
-        },
-        {
-            "ip": "161.0.99.56:8333",
-            "location": "Willemstad/Curacao",
-            "trend": round(tor_value - 0.2, 1),
-            "signal": "Short",
-            "coin_pairs": ["F", "J", "H"],
-            "lat": 12.12, "lon": -68.93,
-            "coordinate": "A57018"
-        },
-        {
-            "ip": "115.85.88.107:8333",
-            "location": "Jakarta/Indonesia",
-            "trend": round(tor_value + 1.0, 1),
-            "signal": "Long",
-            "coin_pairs": ["COORDINATE"],
-            "lat": -6.21, "lon": 106.85
-        },
-        {
-            "ip": "[2804:14c:58:5c3b:1d91:865c:7b59:81ef]:8333",
-            "location": "Sao Paulo/Brazil",
-            "trend": round(tor_value - 1.2, 1),
-            "signal": "Short",
-            "coin_pairs": ["CFX/USDT", "UNFI/USDT"],
-            "lat": -23.55, "lon": -46.63,
-            "coordinate": "G"
-        },
-        {
-            "ip": "185.165.168.22:8333",
-            "location": "London/UK",
-            "trend": round(tor_value + 0.3, 1),
-            "signal": "Long",
-            "coin_pairs": ["BTC/USDT", "ETH/USDT"],
-            "lat": 51.51, "lon": -0.13,
-            "coordinate": "A,D,G"
-        },
-        {
-            "ip": "103.152.112.44:8333",
-            "location": "Singapore",
-            "trend": round(tor_value + 1.2, 1),
-            "signal": "Long",
-            "coin_pairs": ["BNB/USDT", "SOL/USDT"],
-            "lat": 1.35, "lon": 103.82
-        },
-        {
-            "ip": "45.32.18.99:8333",
-            "location": "New York/USA",
-            "trend": round(tor_value, 1),
-            "signal": "Neutral",
-            "coin_pairs": ["BTC/USDT"],
-            "lat": 40.71, "lon": -74.01
-        }
-    ]
-    return nodes
+def enrich_nodes_with_signals(nodes, tor_value):
+    """Add coin signals to each node based on trend"""
+    # Predefined mapping for major locations (from your screenshot)
+    location_signals = {
+        "Almaty": {"signal": "Long", "coins": ["SOL/USDT", "OKB/USDT"], "trend_offset": +0.5},
+        "Willemstad": {"signal": "Short", "coins": ["F", "J", "H"], "trend_offset": -0.2},
+        "Jakarta": {"signal": "Long", "coins": ["COORDINATE"], "trend_offset": +1.0},
+        "Sao Paulo": {"signal": "Short", "coins": ["CFX/USDT", "UNFI/USDT"], "trend_offset": -1.2},
+        "London": {"signal": "Long", "coins": ["BTC/USDT", "ETH/USDT"], "trend_offset": +0.3},
+        "Singapore": {"signal": "Long", "coins": ["BNB/USDT", "SOL/USDT"], "trend_offset": +1.2},
+        "New York": {"signal": "Neutral", "coins": ["BTC/USDT"], "trend_offset": 0},
+        "Frankfurt": {"signal": "Neutral", "coins": ["ETH/USDT"], "trend_offset": -0.1},
+        "Tokyo": {"signal": "Neutral", "coins": ["XRP/USDT"], "trend_offset": 0.2},
+    }
+    
+    enriched = []
+    for node in nodes:
+        city = node.get('city', '')
+        # Find matching city
+        match = None
+        for key in location_signals:
+            if key.lower() in city.lower():
+                match = location_signals[key]
+                break
+        if match:
+            trend = round(tor_value + match['trend_offset'], 1)
+            signal = match['signal']
+            coins = match['coins']
+        else:
+            # Default based on global TOR
+            if tor_value > 65.5:
+                signal = "Long"
+                coins = ["BTC/USDT"]
+            elif tor_value < 64.5:
+                signal = "Short"
+                coins = ["ETH/USDT"]
+            else:
+                signal = "Neutral"
+                coins = ["LINK/USDT"]
+            trend = round(tor_value, 1)
+        
+        enriched.append({
+            **node,
+            'trend': trend,
+            'signal': signal,
+            'coin_pairs': coins
+        })
+    return enriched
 
 # ============================================
-# CREATE MAP - EXACT STYLE AS IMAGE
+# CREATE PROFESSIONAL MAP
 # ============================================
-def create_exact_style_map(nodes):
-    """Create map with custom markers and hover info matching image style"""
+def create_pro_map(nodes):
+    """Create a beautiful interactive map like bitnodes.io"""
+    if not nodes:
+        # Fallback default nodes (from your image)
+        nodes = [
+            {"ip": "217.15.178.11:8333", "lat": 43.25, "lon": 76.95, "city": "Almaty", "country": "Kazakhstan", "trend": 66.2, "signal": "Long", "coin_pairs": ["SOL/USDT", "OKB/USDT"]},
+            {"ip": "161.0.99.56:8333", "lat": 12.12, "lon": -68.93, "city": "Willemstad", "country": "Curacao", "trend": 57.0, "signal": "Short", "coin_pairs": ["F", "J", "H"]},
+            {"ip": "115.85.88.107:8333", "lat": -6.21, "lon": 106.85, "city": "Jakarta", "country": "Indonesia", "trend": 72.0, "signal": "Long", "coin_pairs": ["COORDINATE"]},
+            {"ip": "[2804:14c:58:5c3b:1d91:865c:7b59:81ef]:8333", "lat": -23.55, "lon": -46.63, "city": "Sao Paulo", "country": "Brazil", "trend": 58.9, "signal": "Short", "coin_pairs": ["CFX/USDT", "UNFI/USDT"]},
+            {"ip": "185.165.168.22:8333", "lat": 51.51, "lon": -0.13, "city": "London", "country": "UK", "trend": 68.3, "signal": "Long", "coin_pairs": ["BTC/USDT", "ETH/USDT"]},
+            {"ip": "103.152.112.44:8333", "lat": 1.35, "lon": 103.82, "city": "Singapore", "country": "Singapore", "trend": 79.5, "signal": "Long", "coin_pairs": ["BNB/USDT", "SOL/USDT"]},
+            {"ip": "45.32.18.99:8333", "lat": 40.71, "lon": -74.01, "city": "New York", "country": "USA", "trend": 64.5, "signal": "Neutral", "coin_pairs": ["BTC/USDT"]}
+        ]
     
     df = pd.DataFrame(nodes)
     
-    # Custom hovertemplate exactly like image info
-    hovertemplate = "<b>%{text}</b><br>📍 %{customdata[0]}<br>📊 TREND: %{customdata[1]}%<br>"
-    hovertemplate += "📈 Signal: %{customdata[2]}<br>💹 Pairs: %{customdata[3]}<extra></extra>"
+    # Marker colors based on signal
+    marker_colors = df['signal'].map({'Long': '#00e5a0', 'Short': '#ff4d4d', 'Neutral': '#ffaa44'}).fillna('#88aaff')
+    
+    # Custom hovertemplate
+    hover_text = []
+    for _, row in df.iterrows():
+        text = f"<b>{row['ip']}</b><br>📍 {row['city']}, {row['country']}<br>📊 Trend: {row['trend']}%<br>"
+        text += f"📈 Signal: <span style='color:{'#00e5a0' if row['signal']=='Long' else '#ff4d4d' if row['signal']=='Short' else '#ffaa44'}'>{row['signal']}</span><br>"
+        text += f"💹 Pairs: {', '.join(row['coin_pairs'])}"
+        hover_text.append(text)
     
     fig = go.Figure()
     
-    # Add map background (dark style)
+    # Add map background (dark)
     fig.add_trace(go.Scattergeo(
         lon=[-180, 180, 180, -180],
         lat=[-90, -90, 90, 90],
         mode='lines',
         line=dict(width=0),
         fill='toself',
-        fillcolor='#0a0e27',
+        fillcolor='#0a0e1a',
         showlegend=False
     ))
     
@@ -268,152 +311,155 @@ def create_exact_style_map(nodes):
     fig.add_trace(go.Scattergeo(
         lon=df['lon'],
         lat=df['lat'],
-        text=df['ip'],
-        customdata=df.apply(lambda x: [x['location'], x['trend'], x['signal'], ', '.join(x['coin_pairs'])], axis=1),
+        text=hover_text,
         mode='markers',
         marker=dict(
-            size=12,
-            color=['#00ffaa' if x['signal'] == 'Long' else ('#ff4444' if x['signal'] == 'Short' else '#ffaa00') for x in nodes],
+            size=14,
+            color=marker_colors,
             symbol='circle',
             line=dict(width=2, color='white'),
-            opacity=0.9
+            opacity=0.9,
+            sizemode='area'
         ),
-        hovertemplate=hovertemplate,
+        hovertemplate='%{text}<extra></extra>',
         name='Bitcoin Nodes'
     ))
     
+    # Update layout for bitnodes.io style
     fig.update_layout(
         title=dict(
-            text="🌍 BITCOIN NODE MAP",
-            font=dict(color='#00ffaa', size=16, family='Orbitron'),
+            text="🌍 BITCOIN NODE NETWORK",
+            font=dict(color='#00e5a0', size=18, family='Inter'),
             x=0.5
         ),
         geo=dict(
-            projection_type='equirectangular',
+            projection_type='natural earth',
             showland=True,
-            landcolor='#0f1322',
-            coastlinecolor='#2a2f4a',
+            landcolor='#111827',
+            coastlinecolor='#2a3a4a',
             showocean=True,
-            oceancolor='#050814',
+            oceancolor='#0a0e1a',
             showcountries=True,
-            countrycolor='#1a2040',
-            showframe=False
+            countrycolor='#2a3a4a',
+            countrywidth=1,
+            showframe=False,
+            lataxis=dict(range=[-60, 90]),
+            lonaxis=dict(range=[-180, 180]),
+            bgcolor='#0a0e1a'
         ),
-        height=550,
-        margin=dict(l=0, r=0, t=50, b=0),
-        paper_bgcolor='#0a0e27',
-        plot_bgcolor='#0a0e27',
-        font=dict(color='#88ffcc', family='Share Tech Mono')
+        height=580,
+        margin=dict(l=0, r=0, t=60, b=0),
+        paper_bgcolor='#0a0e1a',
+        plot_bgcolor='#0a0e1a',
+        font=dict(color='#cbd5e1', family='Inter'),
+        hoverlabel=dict(bgcolor='#1e293b', font_size=12, font_color='#00e5a0')
     )
     
     return fig
 
 # ============================================
-# MAIN APP
+# MAIN APP LOGIC
 # ============================================
-
-# Fetch real data
-with st.spinner('🔄 Fetching live Bitnodes data...'):
-    bit = fetch_bitnodes()
-    tor = bit['tor']
-    na = bit['na']
-    success = bit['success']
-    now = datetime.now()
+data = fetch_bitnodes_data()
+tor = data['tor']
+na = data['na']
+nodes_raw = data['nodes']
+success = data['success']
+timestamp = data['timestamp']
 
 # Calculate delta
-delta_tor = tor - st.session_state.prev_tor if st.session_state.prev_tor else 0
-delta_na = na - st.session_state.prev_na if st.session_state.prev_na else 0
-
+delta_tor = tor - st.session_state.prev_tor if st.session_state.prev_tor is not None else 0
+delta_na = na - st.session_state.prev_na if st.session_state.prev_na is not None else 0
 st.session_state.prev_tor = tor
 st.session_state.prev_na = na
 
-# Get nodes with coins
-nodes_data = get_nodes_with_coins(tor)
+# Enrich nodes with coin signals
+nodes = enrich_nodes_with_signals(nodes_raw, tor)
 
 # ============================================
-# STATISTICS PANEL
+# STATS ROW
 # ============================================
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
     st.markdown(f"""
-    <div class="stat-box">
-        <div>🌐 TOR %</div>
+    <div class="stat-card">
+        <div class="stat-label">🌐 TOR %</div>
         <div class="stat-value">{tor}%</div>
-        <div style="color: {'#00ffaa' if delta_tor > 0 else '#ff4444'}">{delta_tor:+.2f}%</div>
+        <div style="color: {'#00e5a0' if delta_tor>0 else '#ff4d4d'}">{delta_tor:+.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
-
 with col2:
     st.markdown(f"""
-    <div class="stat-box">
-        <div>📡 Network Availability</div>
+    <div class="stat-card">
+        <div class="stat-label">📡 NETWORK AVAILABILITY</div>
         <div class="stat-value">{na:,}</div>
-        <div style="color: {'#00ffaa' if delta_na > 0 else '#ff4444'}">{delta_na:+,.0f}</div>
+        <div style="color: {'#00e5a0' if delta_na>0 else '#ff4d4d'}">{delta_na:+,.0f}</div>
     </div>
     """, unsafe_allow_html=True)
-
 with col3:
     st.markdown(f"""
-    <div class="stat-box">
-        <div>📊 Global Trend</div>
-        <div class="stat-value">{'▲' if delta_tor > 0 else '▼'} {abs(delta_tor)}%</div>
-        <div>Based on TOR</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    st.markdown(f"""
-    <div class="stat-box">
-        <div>🕐 Last Update</div>
-        <div class="stat-value">{now.strftime('%H:%M:%S')}</div>
+    <div class="stat-card">
+        <div class="stat-label">⏱️ LAST UPDATE</div>
+        <div class="stat-value">{timestamp.strftime('%H:%M:%S')}</div>
         <div>UTC</div>
     </div>
     """, unsafe_allow_html=True)
-
-# ============================================
-# MAP DISPLAY
-# ============================================
-st.markdown("### 🗺️ Bitcoin Node Network Map")
-map_fig = create_exact_style_map(nodes_data)
-st.plotly_chart(map_fig, use_container_width=True)
-
-st.caption("🟢 Green = Long | 🔴 Red = Short | 🟡 Yellow = Neutral | Hover on dots for details")
-
-# ============================================
-# NODES LIST - EXACTLY LIKE IMAGE
-# ============================================
-st.markdown("### 📡 Active Nodes with Coin Pairs")
-
-for node in nodes_data:
-    trend_color = "trend-up" if node['trend'] >= tor else "trend-down"
-    signal_class = "signal-long" if node['signal'] == "Long" else ("signal-short" if node['signal'] == "Short" else "")
+with col4:
+    status = "🟢 LIVE" if success else "🟡 SIMULATION"
     st.markdown(f"""
-    <div class="node-card">
-        <div class="node-ip">🔗 {node['ip']}</div>
-        <div class="node-location">📍 {node['location']}</div>
-        <div class="node-trend">📊 TREND: <span class="{trend_color}">{node['trend']}%</span></div>
-        <div class="{signal_class}">📈 Signal: {node['signal']}</div>
-        <div class="coin-pair">💹 Pairs: {' · '.join(node['coin_pairs'])}</div>
+    <div class="stat-card">
+        <div class="stat-label">DATA STATUS</div>
+        <div class="stat-value" style="font-size:1.2rem;">{status}</div>
+        <div>Bitnodes API</div>
     </div>
     """, unsafe_allow_html=True)
 
 # ============================================
-# SIGNAL LEGEND
+# MAP
 # ============================================
-st.markdown("### 📖 Signal Legend")
-st.markdown("""
-<div style="background:#0f1322; padding:12px; border-radius:8px; font-size:13px;">
-    <span style="color:#00ffaa;">🟢 LONG</span> = Bullish signal | 
-    <span style="color:#ff4444;">🔴 SHORT</span> = Bearish signal | 
-    <span style="color:#ffaa00;">🟡 NEUTRAL</span> = Wait
-</div>
-""", unsafe_allow_html=True)
+st.markdown("### 🗺️ BITCOIN NODE NETWORK MAP")
+map_fig = create_pro_map(nodes)
+st.plotly_chart(map_fig, use_container_width=True)
+st.caption("🟢 Long signal | 🔴 Short signal | 🟡 Neutral | Hover over dots for coin details")
+
+# ============================================
+# NODE LIST WITH SIGNALS
+# ============================================
+st.markdown("### 📡 ACTIVE NODES & TRADING SIGNALS")
+
+# Two columns: left for node list, right could be empty or extra info
+cols = st.columns([2, 1])
+with cols[0]:
+    with st.container():
+        for node in nodes:
+            signal_class = f"signal-{node['signal'].lower()}"
+            st.markdown(f"""
+            <div class="node-item">
+                <div class="node-ip">🔗 {node['ip']}</div>
+                <div class="node-location">📍 {node['city']}, {node.get('country', 'Unknown')}</div>
+                <div class="node-trend">📊 TREND: {node['trend']}%</div>
+                <div class="{signal_class}">📈 Signal: {node['signal']}</div>
+                <div class="coin-pairs">💹 Pairs: {', '.join(node['coin_pairs'])}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+with cols[1]:
+    st.markdown("""
+    <div style="background:#111827; border-radius:12px; padding:1rem; border:1px solid #1f2a3a;">
+        <h4 style="color:#00e5a0; margin-bottom:0.5rem;">⚡ Signal Legend</h4>
+        <p><span style="color:#00e5a0;">🟢 LONG</span> = Bullish momentum</p>
+        <p><span style="color:#ff4d4d;">🔴 SHORT</span> = Bearish pressure</p>
+        <p><span style="color:#ffaa44;">🟡 NEUTRAL</span> = Wait for confirmation</p>
+        <hr style="border-color:#1f2a3a;">
+        <h4 style="color:#00e5a0;">🎯 Trading Rules</h4>
+        <p>✅ Use 5x‑10x leverage<br>✅ Stop loss: -0.3%<br>✅ Target: 0.4%‑0.7%<br>✅ Max 3 trades/day</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ============================================
 # REFRESH BUTTON
 # ============================================
-if st.button("🔄 Refresh Data", use_container_width=True):
+if st.button("🔄 Force Refresh Data", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
@@ -422,7 +468,7 @@ if st.button("🔄 Refresh Data", use_container_width=True):
 # ============================================
 st.markdown(f"""
 <div class="footer">
-    <p>🌐 Bitnodes Live Map Data | Last Update: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
-    <p>⚠️ Disclaimer: For informational purposes only. Always DYOR.</p>
+    <p>Data source: Bitnodes.io API | Last refresh: {timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+    <p>⚠️ Trading signals are for informational purposes only. Always perform your own research.</p>
 </div>
 """, unsafe_allow_html=True)
